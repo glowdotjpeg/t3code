@@ -161,6 +161,12 @@ import {
 import { newDraftId, newMessageId, newThreadId } from "~/lib/utils";
 import { getProviderModelCapabilities, resolveSelectableProvider } from "../providerModels";
 import { NO_PROVIDER_MODEL_SELECTION } from "../providerInstances";
+import {
+  INIT_PROJECT_PROMPT,
+  INIT_PROJECT_THREAD_TITLE,
+  isStandaloneInitProjectCommand,
+  resolveInitProjectModelSelection,
+} from "../initProject";
 import { useClientSettings, useEnvironmentSettings } from "../hooks/useSettings";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { resolveAppModelSelectionForInstance } from "../modelSelection";
@@ -266,6 +272,7 @@ import {
   resolveSendEnvMode,
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
+  waitForInitProjectThreadTerminal,
   waitForStartedServerThread,
 } from "./ChatView.logic";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
@@ -1139,6 +1146,9 @@ function ChatViewContent(props: ChatViewProps) {
   const closeTerminalMutation = useAtomCommand(terminalEnvironment.close, "terminal close");
   const createThread = useAtomCommand(threadEnvironment.create, { reportFailure: false });
   const deleteThread = useAtomCommand(threadEnvironment.delete, { reportFailure: false });
+  const settleThreadMutation = useAtomCommand(threadEnvironment.settle, {
+    reportFailure: false,
+  });
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
@@ -1297,6 +1307,7 @@ function ChatViewContent(props: ChatViewProps) {
   const attachmentPreviewHandoffByMessageIdRef = useRef<Record<string, string[]>>({});
   const attachmentPreviewPromotionInFlightByMessageIdRef = useRef<Record<string, true>>({});
   const sendInFlightRef = useRef(false);
+  const initProjectInFlightRef = useRef(false);
   const terminalUiOpenByThreadRef = useRef<Record<string, boolean>>({});
 
   useLayoutEffect(() => {
@@ -4434,6 +4445,194 @@ function ChatViewContent(props: ChatViewProps) {
     ],
   );
 
+  const onInitProject = useCallback(async () => {
+    if (initProjectInFlightRef.current) {
+      return;
+    }
+    if (!activeThread || !activeProject) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "warning",
+          title: "Choose a project first",
+          description: "/initproj needs an active project.",
+        }),
+      );
+      return;
+    }
+    if (!supportsSettlement) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "warning",
+          title: "Update the connected T3 server",
+          description: "/initproj requires thread settlement support.",
+        }),
+      );
+      return;
+    }
+
+    const modelSelection = resolveInitProjectModelSelection(providerStatuses);
+    if (modelSelection === null) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "warning",
+          title: "No compatible GPT model is ready",
+          description:
+            "Connect a ready Codex provider that advertises a supported OpenAI GPT model.",
+        }),
+      );
+      return;
+    }
+
+    initProjectInFlightRef.current = true;
+    const createdAt = new Date().toISOString();
+    const initThreadId = newThreadId();
+    const initThreadRef = scopeThreadRef(activeThread.environmentId, initThreadId);
+    let threadCreated = false;
+    let failure: AtomCommandResult<unknown, unknown> | null = null;
+
+    try {
+      const createResult = await createThread({
+        environmentId: activeThread.environmentId,
+        input: {
+          threadId: initThreadId,
+          projectId: activeProject.id,
+          title: INIT_PROJECT_THREAD_TITLE,
+          modelSelection,
+          runtimeMode,
+          interactionMode: "default",
+          branch: activeThreadBranch,
+          worktreePath: activeThread.worktreePath,
+          createdAt,
+        },
+      });
+      if (createResult._tag === "Failure") {
+        failure = createResult;
+      } else {
+        threadCreated = true;
+      }
+
+      if (failure === null) {
+        const startResult = await startThreadTurn({
+          environmentId: activeThread.environmentId,
+          input: {
+            threadId: initThreadId,
+            message: {
+              messageId: newMessageId(),
+              role: "user",
+              text: INIT_PROJECT_PROMPT,
+              attachments: [],
+            },
+            modelSelection,
+            titleSeed: INIT_PROJECT_THREAD_TITLE,
+            runtimeMode,
+            interactionMode: "default",
+            createdAt,
+          },
+        });
+        if (startResult._tag === "Failure") {
+          failure = startResult;
+        }
+      }
+
+      if (failure !== null) {
+        if (threadCreated) {
+          const cleanupResult = await deleteThread({
+            environmentId: activeThread.environmentId,
+            input: { threadId: initThreadId },
+          });
+          if (cleanupResult._tag === "Failure" && !isAtomCommandInterrupted(cleanupResult)) {
+            console.warn(
+              "Failed to clean up /initproj thread after start failure.",
+              squashAtomCommandFailure(cleanupResult),
+            );
+          }
+        }
+        if (!isAtomCommandInterrupted(failure)) {
+          const error = squashAtomCommandFailure(failure);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Could not start project initialization",
+              description:
+                error instanceof Error
+                  ? error.message
+                  : "The initialization thread failed to start.",
+            }),
+          );
+        }
+        return;
+      }
+
+      toastManager.add(
+        stackedThreadToast({
+          type: "info",
+          title: "Project initialization started",
+          description: `${modelSelection.model} is working in a separate thread.`,
+        }),
+      );
+
+      void (async () => {
+        const outcome = await waitForInitProjectThreadTerminal(initThreadRef);
+        if (outcome !== "completed") {
+          toastManager.add(
+            stackedThreadToast({
+              type: outcome === "timeout" ? "warning" : "error",
+              title:
+                outcome === "timeout"
+                  ? "Project initialization is still running"
+                  : "Project initialization needs attention",
+              description:
+                outcome === "timeout"
+                  ? "The thread was left active after waiting 24 hours."
+                  : `The initialization thread ended with status: ${outcome}.`,
+            }),
+          );
+          return;
+        }
+
+        const settleResult = await settleThreadMutation({
+          environmentId: initThreadRef.environmentId,
+          input: { threadId: initThreadRef.threadId },
+        });
+        if (settleResult._tag === "Failure") {
+          if (!isAtomCommandInterrupted(settleResult)) {
+            const error = squashAtomCommandFailure(settleResult);
+            toastManager.add(
+              stackedThreadToast({
+                type: "error",
+                title: "Project initialized, but the thread stayed active",
+                description:
+                  error instanceof Error ? error.message : "The thread could not be settled.",
+              }),
+            );
+          }
+          return;
+        }
+
+        toastManager.add(
+          stackedThreadToast({
+            type: "success",
+            title: "Project initialization complete",
+            description: "The initialization thread was settled.",
+          }),
+        );
+      })();
+    } finally {
+      initProjectInFlightRef.current = false;
+    }
+  }, [
+    activeProject,
+    activeThread,
+    activeThreadBranch,
+    createThread,
+    deleteThread,
+    providerStatuses,
+    runtimeMode,
+    settleThreadMutation,
+    startThreadTurn,
+    supportsSettlement,
+  ]);
+
   const onSend = async (e?: { preventDefault: () => void }) => {
     e?.preventDefault();
     if (
@@ -4449,7 +4648,7 @@ function ChatViewContent(props: ChatViewProps) {
       return;
     }
     const sendCtx = composerRef.current?.getSendContext();
-    if (!sendCtx?.providerAvailable) return;
+    if (!sendCtx) return;
     const {
       images: composerImages,
       terminalContexts: composerTerminalContexts,
@@ -4491,14 +4690,23 @@ function ChatViewContent(props: ChatViewProps) {
       });
       return;
     }
-    const standaloneSlashCommand =
+    const hasStandaloneSlashCommandContext =
       composerImages.length === 0 &&
       sendableComposerTerminalContexts.length === 0 &&
       composerElementContexts.length === 0 &&
       composerPreviewAnnotations.length === 0 &&
-      composerReviewComments.length === 0
-        ? parseStandaloneComposerSlashCommand(trimmed)
-        : null;
+      composerReviewComments.length === 0;
+    if (hasStandaloneSlashCommandContext && isStandaloneInitProjectCommand(trimmed)) {
+      promptRef.current = "";
+      clearComposerDraftContent(composerDraftTarget);
+      composerRef.current?.resetCursorState();
+      void onInitProject();
+      return;
+    }
+    if (!sendCtx.providerAvailable) return;
+    const standaloneSlashCommand = hasStandaloneSlashCommandContext
+      ? parseStandaloneComposerSlashCommand(trimmed)
+      : null;
     if (standaloneSlashCommand) {
       handleInteractionModeChange(standaloneSlashCommand);
       promptRef.current = "";

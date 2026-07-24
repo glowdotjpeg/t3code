@@ -20,6 +20,7 @@ import {
   type TerminalContextDraft,
 } from "../lib/terminalContext";
 import type { DraftThreadEnvMode } from "../composerDraftStore";
+import { resolveInitProjectTurnOutcome, type InitProjectTurnOutcome } from "../initProject";
 
 export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "t3code:last-invoked-script-by-project";
 export const MAX_HIDDEN_MOUNTED_TERMINAL_THREADS = 10;
@@ -449,6 +450,52 @@ export async function waitForStartedServerThread(
 
     timeoutId = globalThis.setTimeout(() => {
       finish(false);
+    }, timeoutMs);
+  });
+}
+
+export async function waitForInitProjectThreadTerminal(
+  threadRef: ScopedThreadRef,
+  timeoutMs = 24 * 60 * 60 * 1_000,
+): Promise<InitProjectTurnOutcome | "timeout"> {
+  const threadAtom = environmentThreadDetails.detailAtom(threadRef);
+  const getOutcome = () => resolveInitProjectTurnOutcome(appAtomRegistry.get(threadAtom));
+  const initialOutcome = getOutcome();
+
+  if (initialOutcome !== null) {
+    return initialOutcome;
+  }
+
+  return await new Promise<InitProjectTurnOutcome | "timeout">((resolve) => {
+    let settled = false;
+    let timeoutId: ReturnType<typeof globalThis.setTimeout> | null = null;
+    const finish = (result: InitProjectTurnOutcome | "timeout") => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (timeoutId !== null) {
+        globalThis.clearTimeout(timeoutId);
+      }
+      unsubscribe();
+      resolve(result);
+    };
+
+    const unsubscribe = appAtomRegistry.subscribe(threadAtom, (thread) => {
+      const outcome = resolveInitProjectTurnOutcome(thread);
+      if (outcome !== null) {
+        finish(outcome);
+      }
+    });
+
+    const currentOutcome = getOutcome();
+    if (currentOutcome !== null) {
+      finish(currentOutcome);
+      return;
+    }
+
+    timeoutId = globalThis.setTimeout(() => {
+      finish("timeout");
     }, timeoutMs);
   });
 }
