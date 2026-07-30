@@ -485,6 +485,12 @@ export const OrchestrationSubscribeShellInput = Schema.Struct({
    * snapshot or catch-up replay and before it begins emitting live events.
    */
   requestCompletionMarker: Schema.optionalKey(Schema.Boolean),
+  /**
+   * Opts into thread shells whose projectId is null. Older clients require
+   * every thread to belong to a project, so omission preserves wire
+   * compatibility with those clients.
+   */
+  includeProjectlessThreads: Schema.optionalKey(Schema.Boolean),
 });
 export type OrchestrationSubscribeShellInput = typeof OrchestrationSubscribeShellInput.Type;
 
@@ -1376,7 +1382,9 @@ export const OrchestrationRpcSchemas = {
     output: OrchestrationGetFullThreadDiffResult,
   },
   getArchivedShellSnapshot: {
-    input: Schema.Struct({}),
+    input: Schema.Struct({
+      includeProjectlessThreads: Schema.optionalKey(Schema.Boolean),
+    }),
     output: OrchestrationShellSnapshot,
   },
   subscribeThread: {

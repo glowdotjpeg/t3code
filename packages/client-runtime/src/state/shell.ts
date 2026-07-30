@@ -207,10 +207,14 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
           return {
             afterSequence: httpSnapshot.value.snapshotSequence,
             ...(supportsCompletionMarker ? { requestCompletionMarker: true as const } : {}),
+            includeProjectlessThreads: true,
           };
         }
 
-        return supportsCompletionMarker ? { requestCompletionMarker: true as const } : {};
+        return {
+          ...(supportsCompletionMarker ? { requestCompletionMarker: true as const } : {}),
+          includeProjectlessThreads: true,
+        };
       }),
       {
         onExpectedFailure: (cause) => setStreamError(Cause.squash(cause)),

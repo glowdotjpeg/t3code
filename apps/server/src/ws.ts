@@ -1107,6 +1107,12 @@ const makeWsRpcLayer = (
           observeRpcStreamEffect(
             ORCHESTRATION_WS_METHODS.subscribeShell,
             Effect.gen(function* () {
+              const includeProjectlessThreads = input.includeProjectlessThreads === true;
+              const isCompatibleShellItem = (item: OrchestrationShellStreamItem) =>
+                includeProjectlessThreads ||
+                item.kind !== "thread-upserted" ||
+                item.thread.projectId !== null;
+
               // Coalesce the live shell stream per aggregate over a small window
               // so bursts of high-frequency events (streaming message deltas,
               // activity appends) collapse into a single shell refetch and never
@@ -1127,9 +1133,19 @@ const makeWsRpcLayer = (
                 ),
                 { startImmediately: true },
               );
-              const bufferedLiveStream = coalesceShellLiveStream(Stream.fromQueue(liveBuffer));
+              const bufferedLiveStream = coalesceShellLiveStream(Stream.fromQueue(liveBuffer)).pipe(
+                Stream.filter(isCompatibleShellItem),
+              );
 
               const loadSnapshot = projectionSnapshotQuery.getShellSnapshot().pipe(
+                Effect.map((snapshot) =>
+                  includeProjectlessThreads
+                    ? snapshot
+                    : {
+                        ...snapshot,
+                        threads: snapshot.threads.filter((thread) => thread.projectId !== null),
+                      },
+                ),
                 Effect.tapError((cause) =>
                   Effect.logError("orchestration shell snapshot load failed", { cause }),
                 ),
@@ -1153,7 +1169,10 @@ const makeWsRpcLayer = (
                           Effect.andThen(Queue.takeAll(liveBuffer)),
                           Effect.flatMap(coalesceShellLiveInputs),
                         ),
-                      ).pipe(Stream.flatMap((items) => Stream.fromIterable(items))),
+                      ).pipe(
+                        Stream.flatMap((items) => Stream.fromIterable(items)),
+                        Stream.filter(isCompatibleShellItem),
+                      ),
                       bufferedLiveStream,
                     )
                   : bufferedLiveStream;
@@ -1188,6 +1207,7 @@ const makeWsRpcLayer = (
                   // buffer indefinitely while waiting for an empty page.
                   orchestrationEngine.readEvents(afterSequence, replayGap),
                 ).pipe(
+                  Stream.filter(isCompatibleShellItem),
                   Stream.mapError(
                     (cause) =>
                       new OrchestrationGetSnapshotError({
@@ -1210,10 +1230,18 @@ const makeWsRpcLayer = (
             }),
             { "rpc.aggregate": "orchestration" },
           ),
-        [ORCHESTRATION_WS_METHODS.getArchivedShellSnapshot]: (_input) =>
+        [ORCHESTRATION_WS_METHODS.getArchivedShellSnapshot]: (input) =>
           observeRpcEffect(
             ORCHESTRATION_WS_METHODS.getArchivedShellSnapshot,
             projectionSnapshotQuery.getArchivedShellSnapshot().pipe(
+              Effect.map((snapshot) =>
+                input.includeProjectlessThreads === true
+                  ? snapshot
+                  : {
+                      ...snapshot,
+                      threads: snapshot.threads.filter((thread) => thread.projectId !== null),
+                    },
+              ),
               Effect.tapError((cause) =>
                 Effect.logError("orchestration archived shell snapshot load failed", { cause }),
               ),

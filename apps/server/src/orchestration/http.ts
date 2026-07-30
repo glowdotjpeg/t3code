@@ -46,13 +46,19 @@ export const orchestrationHttpApiLayer = HttpApiBuilder.group(
         Effect.fn("environment.orchestration.shellSnapshot")(function* (args) {
           yield* annotateEnvironmentRequest(args.endpoint.name);
           yield* requireEnvironmentScope(AuthOrchestrationReadScope);
-          return yield* projectionSnapshotQuery
+          const snapshot = yield* projectionSnapshotQuery
             .getShellSnapshot()
             .pipe(
               Effect.catch((cause) =>
                 failEnvironmentInternal("orchestration_snapshot_failed", cause),
               ),
             );
+          return args.headers["x-t3-projectless-threads"] === "1"
+            ? snapshot
+            : {
+                ...snapshot,
+                threads: snapshot.threads.filter((thread) => thread.projectId !== null),
+              };
         }),
       )
       .handle(

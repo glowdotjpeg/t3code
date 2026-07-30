@@ -5848,6 +5848,83 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("hides projectless shell threads from clients that do not opt in", () =>
+    Effect.gen(function* () {
+      const projectThread = makeDefaultOrchestrationThreadShell();
+      const projectlessThread = makeDefaultOrchestrationThreadShell({
+        id: ThreadId.make("thread-projectless"),
+        projectId: null,
+      });
+      yield* buildAppUnderTest({
+        layers: {
+          projectionSnapshotQuery: {
+            getShellSnapshot: () =>
+              Effect.succeed({
+                snapshotSequence: 1,
+                projects: [],
+                threads: [projectThread, projectlessThread],
+                updatedAt: "2026-01-01T00:00:00.000Z",
+              }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const firstItem = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.subscribeShell]({}).pipe(Stream.runHead),
+        ),
+      );
+      const item = Option.getOrThrow(firstItem);
+
+      assert.equal(item.kind, "snapshot");
+      if (item.kind === "snapshot") {
+        assert.deepEqual(
+          item.snapshot.threads.map((thread) => thread.id),
+          [projectThread.id],
+        );
+      }
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("includes projectless shell threads for clients that opt in", () =>
+    Effect.gen(function* () {
+      const projectlessThread = makeDefaultOrchestrationThreadShell({
+        id: ThreadId.make("thread-projectless"),
+        projectId: null,
+      });
+      yield* buildAppUnderTest({
+        layers: {
+          projectionSnapshotQuery: {
+            getShellSnapshot: () =>
+              Effect.succeed({
+                snapshotSequence: 1,
+                projects: [],
+                threads: [projectlessThread],
+                updatedAt: "2026-01-01T00:00:00.000Z",
+              }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const firstItem = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.subscribeShell]({
+            includeProjectlessThreads: true,
+          }).pipe(Stream.runHead),
+        ),
+      );
+      const item = Option.getOrThrow(firstItem);
+
+      assert.equal(item.kind, "snapshot");
+      if (item.kind === "snapshot") {
+        assert.equal(item.snapshot.threads[0]?.id, projectlessThread.id);
+        assert.equal(item.snapshot.threads[0]?.projectId, null);
+      }
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("marks a socket thread snapshot as synchronized when requested", () =>
     Effect.gen(function* () {
       const thread = makeDefaultOrchestrationReadModel().threads[0]!;

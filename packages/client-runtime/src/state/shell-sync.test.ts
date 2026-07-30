@@ -167,14 +167,17 @@ describe("environment shell synchronization", () => {
       const events = yield* Queue.unbounded<OrchestrationShellStreamItem>();
       const capturedAfterSequence = yield* SubscriptionRef.make<number | undefined>(undefined);
       const capturedCompletionMarker = yield* Ref.make<boolean | undefined>(undefined);
+      const capturedProjectlessCapability = yield* Ref.make<boolean | undefined>(undefined);
       const loaderCalls = yield* SubscriptionRef.make(0);
       const client = {
         [ORCHESTRATION_WS_METHODS.subscribeShell]: (input: {
           readonly afterSequence?: number;
           readonly requestCompletionMarker?: boolean;
+          readonly includeProjectlessThreads?: boolean;
         }) =>
           Stream.unwrap(
-            Ref.set(capturedCompletionMarker, input.requestCompletionMarker).pipe(
+            Ref.set(capturedProjectlessCapability, input.includeProjectlessThreads).pipe(
+              Effect.andThen(Ref.set(capturedCompletionMarker, input.requestCompletionMarker)),
               Effect.andThen(SubscriptionRef.set(capturedAfterSequence, input.afterSequence)),
               Effect.as(Stream.fromQueue(events)),
             ),
@@ -227,6 +230,7 @@ describe("environment shell synchronization", () => {
 
       expect(yield* SubscriptionRef.get(capturedAfterSequence)).toBe(9);
       expect(yield* Ref.get(capturedCompletionMarker)).toBe(true);
+      expect(yield* Ref.get(capturedProjectlessCapability)).toBe(true);
       expect(yield* SubscriptionRef.get(loaderCalls)).toBe(1);
       const synchronizing = yield* SubscriptionRef.get(shellState);
       expect(synchronizing.status).toBe("synchronizing");
