@@ -86,10 +86,16 @@ export const PreviewAutomationOpenInput = Schema.Struct({
     description:
       "Optional initial page URL, for example https://t3.chat or localhost:5173. Omit to open a blank tab.",
   }),
+  open: Schema.optional(
+    Schema.Boolean.annotate({
+      description:
+        "Whether to open the thread-bound inline preview for the human. Defaults to false so background automation does not interrupt the workspace.",
+    }),
+  ),
   show: Schema.optional(
     Schema.Boolean.annotate({
       description:
-        "Whether to reveal the preview panel to the human. Defaults to false so agent automation does not interrupt their workspace.",
+        "Deprecated alias for open. Whether to reveal the thread-bound inline preview to the human.",
     }),
   ),
   reuseExistingTab: Schema.optional(
