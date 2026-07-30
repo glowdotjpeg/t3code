@@ -19,6 +19,32 @@ From the repository root:
 This starts the desktop app with `T3CODE_DEV_INSTANCE=custom`, giving it an
 isolated development port set. Source changes hot reload.
 
+## Connect the custom development build to T3 Mobile
+
+Run:
+
+```powershell
+.\.custom\connect-mobile.cmd
+```
+
+This uses the official published T3 Connect CLI for its production public
+configuration, but stores the authorization in `C:\Users\<you>\.t3`, which is
+the same data directory used by `start-dev.cmd`. After browser authorization
+finishes, restart the custom development app so it can provision the managed
+mobile connection.
+
+Check the connection later with:
+
+```powershell
+.\.custom\connect-mobile.cmd status
+```
+
+Disable it without deleting the saved login with:
+
+```powershell
+.\.custom\connect-mobile.cmd unlink
+```
+
 ## Make a feature
 
 For small personal changes, committing directly to `custom` is acceptable:

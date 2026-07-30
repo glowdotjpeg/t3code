@@ -339,8 +339,6 @@ const ProviderRuntimeLayerLive = ProviderSessionReaperLive.pipe(
   Layer.provideMerge(OrchestrationLayerLive),
 );
 
-const ServerSettingsLayerLive = ServerSettings.layer.pipe(Layer.provide(ServerSecretStore.layer));
-
 const UsageRepositoryLayerLive = UsageRepository.layer;
 
 const UsageLayerLive = Layer.mergeAll(
@@ -355,7 +353,7 @@ const SettingsAndUsageLayerLive = Layer.mergeAll(ServerSettingsLayerLive, UsageL
 
 const RuntimeCoreBaseDependenciesLive = ReactorLayerLive.pipe(
   // Core Services
-  Layer.provideMerge(ServerSettingsLayerLive),
+  Layer.provideMerge(SettingsAndUsageLayerLive),
   Layer.provideMerge(CheckpointingLayerLive),
   Layer.provideMerge(SourceControlProviderRegistryLayerLive),
   Layer.provideMerge(GitLayerLive),
@@ -383,7 +381,6 @@ const RuntimeCoreBaseDependenciesLive = ReactorLayerLive.pipe(
   // no longer transitively provides it. Exposing it at the runtime level
   // keeps a single Live for all opencode consumers.
   Layer.provideMerge(OpenCodeRuntime.OpenCodeRuntimeLive),
-  Layer.provideMerge(SettingsAndUsageLayerLive),
   Layer.provideMerge(WorkspaceLayerLive),
   Layer.provideMerge(ProjectFaviconResolverLayerLive),
   Layer.provideMerge(RepositoryIdentityResolver.layer),

@@ -609,9 +609,7 @@ export function HomeScreen(props: HomeScreenProps) {
       }
       const thread = item.item.thread;
       const projectKey =
-        thread.projectId === null
-          ? null
-          : scopedProjectKey(thread.environmentId, thread.projectId);
+        thread.projectId === null ? null : scopedProjectKey(thread.environmentId, thread.projectId);
       return (
         <ThreadListV2Row
           thread={thread}
