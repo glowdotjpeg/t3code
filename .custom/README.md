@@ -21,29 +21,29 @@ isolated development port set. Source changes hot reload.
 
 ## Connect the custom development build to T3 Mobile
 
-Run:
+Keep the development desktop running, then run:
 
 ```powershell
 .\.custom\connect-mobile.cmd
 ```
 
-This uses the official published T3 Connect CLI for its production public
-configuration, but stores the authorization in `C:\Users\<you>\.t3`, which is
-the same data directory used by `start-dev.cmd`. After browser authorization
-finishes, restart the custom development app so it can provision the managed
-mobile connection.
+The helper reads the live development server from `C:\Users\<you>\.t3\dev`,
+issues a one-time pairing link from that development database, and prefers the
+machine's Tailscale address. Open the printed link on the phone. The phone will
+then show the development build's threads while source changes continue to hot
+reload.
 
-Check the connection later with:
-
-```powershell
-.\.custom\connect-mobile.cmd status
-```
-
-Disable it without deleting the saved login with:
+To use a specific LAN address instead:
 
 ```powershell
-.\.custom\connect-mobile.cmd unlink
+.\.custom\connect-mobile.cmd 192.168.x.x
 ```
+
+Do not use plain `npx t3 serve` for this workflow. It runs the published server
+against `C:\Users\<you>\.t3\userdata`, which is the installed app's production
+environment. For the managed T3 Connect tunnel instead of a direct
+Tailscale/LAN connection, enable T3 Connect from the development app's
+Connections settings so the link is written to the development environment.
 
 ## Make a feature
 
