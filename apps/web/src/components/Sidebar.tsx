@@ -106,7 +106,7 @@ import { isModelPickerOpen } from "../modelPickerVisibility";
 import { useShortcutModifierState } from "../shortcutModifierState";
 import { readLocalApi } from "../localApi";
 import { useComposerDraftStore } from "../composerDraftStore";
-import { useNewThreadHandler } from "../hooks/useHandleNewThread";
+import { useNewThreadHandler, useProjectlessThreadHandler } from "../hooks/useHandleNewThread";
 import { useDesktopUpdateState } from "../state/desktopUpdate";
 
 import { useThreadActions } from "../hooks/useThreadActions";
@@ -401,7 +401,8 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
   // so git status (and thus PR detection) queries the correct path.
   const threadProject = useProject(
     useMemo(
-      () => scopeProjectRef(thread.environmentId, thread.projectId),
+      () =>
+        thread.projectId === null ? null : scopeProjectRef(thread.environmentId, thread.projectId),
       [thread.environmentId, thread.projectId],
     ),
   );
@@ -1225,6 +1226,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       project.memberProjects.map((member) => [member.physicalProjectKey, 0] as const),
     );
     for (const thread of projectThreads) {
+      if (thread.projectId === null) continue;
       const member = memberProjectByScopedKey.get(
         scopedProjectKey(scopeProjectRef(thread.environmentId, thread.projectId)),
       );
@@ -2107,9 +2109,12 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       const threadKey = scopedThreadKey(threadRef);
       const thread = sidebarThreadByKeyRef.current.get(threadKey) ?? null;
       if (!thread) return;
-      const threadProject = memberProjectByScopedKey.get(
-        scopedProjectKey(scopeProjectRef(thread.environmentId, thread.projectId)),
-      );
+      const threadProject =
+        thread.projectId === null
+          ? undefined
+          : memberProjectByScopedKey.get(
+              scopedProjectKey(scopeProjectRef(thread.environmentId, thread.projectId)),
+            );
       const threadWorkspacePath =
         thread.worktreePath ?? threadProject?.workspaceRoot ?? project.workspaceRoot ?? null;
       const clicked = await api.contextMenu.show(
@@ -2127,10 +2132,12 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       );
 
       if (clicked === "new-thread-on-branch") {
+        if (thread.projectId === null) return;
+        const projectId = thread.projectId;
         // Explicit branch carry-over: reuse the thread's worktree when it
         // has one, otherwise its branch on the local checkout.
         const result = await settlePromise(() =>
-          handleNewThread(scopeProjectRef(thread.environmentId, thread.projectId), {
+          handleNewThread(scopeProjectRef(thread.environmentId, projectId), {
             branch: thread.branch,
             worktreePath: thread.worktreePath,
             envMode: thread.worktreePath ? "worktree" : "local",
@@ -2744,8 +2751,11 @@ interface SidebarProjectsContentProps {
   handleProjectDragEnd: (event: DragEndEvent) => void;
   handleProjectDragCancel: (event: DragCancelEvent) => void;
   handleNewThread: ReturnType<typeof useNewThreadHandler>;
+  handleProjectlessThread: ReturnType<typeof useProjectlessThreadHandler>;
   archiveThread: ReturnType<typeof useThreadActions>["archiveThread"];
   deleteThread: ReturnType<typeof useThreadActions>["deleteThread"];
+  projectlessThreads: readonly SidebarThreadSummary[];
+  navigateToThread: (threadRef: ScopedThreadRef) => void;
   sortedProjects: readonly SidebarProjectSnapshot[];
   expandedThreadListsByProject: ReadonlySet<string>;
   activeRouteProjectKey: string | null;
@@ -2784,8 +2794,11 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
     handleProjectDragEnd,
     handleProjectDragCancel,
     handleNewThread,
+    handleProjectlessThread,
     archiveThread,
     deleteThread,
+    projectlessThreads,
+    navigateToThread,
     sortedProjects,
     expandedThreadListsByProject,
     activeRouteProjectKey,
@@ -2871,6 +2884,54 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
         </SidebarGroup>
       ) : null}
       <LocalSecondaryStatus />
+      <SidebarGroup className="px-2 pt-2 pb-0">
+        <div className="mb-1 flex items-center justify-between pl-2 pr-1.5">
+          <span className="text-xs font-medium text-sidebar-muted-foreground/80">
+            Conversations
+          </span>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label="New conversation"
+                  className="inline-flex h-6 min-w-6 cursor-pointer items-center justify-center rounded-md px-[calc(--spacing(1)-1px)] text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground"
+                  onClick={() => void handleProjectlessThread()}
+                />
+              }
+            >
+              <SquarePenIcon className="size-3.5" />
+            </TooltipTrigger>
+            <TooltipPopup side="right">New conversation</TooltipPopup>
+          </Tooltip>
+        </div>
+        <SidebarMenu>
+          {projectlessThreads.map((thread) => {
+            const threadRef = scopeThreadRef(thread.environmentId, thread.id);
+            const threadKey = scopedThreadKey(threadRef);
+            const jumpLabel = threadJumpLabelByKey.get(threadKey);
+            return (
+              <SidebarMenuItem key={threadKey}>
+                <SidebarMenuButton
+                  size="sm"
+                  isActive={routeThreadKey === threadKey}
+                  data-testid={`projectless-thread-row-${thread.id}`}
+                  className="h-8 gap-2 rounded-md px-2 text-sm"
+                  onClick={() => navigateToThread(threadRef)}
+                >
+                  <span className="min-w-0 flex-1 truncate text-left">{thread.title}</span>
+                  {jumpLabel ? (
+                    <Kbd className="h-4 min-w-0 rounded-sm px-1.5 text-[10px]">{jumpLabel}</Kbd>
+                  ) : null}
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            );
+          })}
+        </SidebarMenu>
+        {projectlessThreads.length === 0 ? (
+          <div className="px-2 py-2 text-xs text-muted-foreground/60">No conversations yet</div>
+        ) : null}
+      </SidebarGroup>
       <SidebarGroup className="px-2 py-2">
         <div className="mb-1 flex items-center justify-between pl-2 pr-1.5">
           <span className="text-xs font-medium text-sidebar-muted-foreground/80">Projects</span>
@@ -3000,6 +3061,7 @@ export default function Sidebar() {
   const sidebarThreadPreviewCount = useClientSettings((s) => s.sidebarThreadPreviewCount);
   const updateSettings = useUpdateClientSettings();
   const handleNewThread = useNewThreadHandler();
+  const handleProjectlessThread = useProjectlessThreadHandler();
   const { archiveThread, deleteThread } = useThreadActions();
   const { isMobile, setOpenMobile } = useSidebar();
   const routeTarget = useParams({
@@ -3124,7 +3186,7 @@ export default function Sidebar() {
       return null;
     }
     const activeThread = sidebarThreadByKey.get(routeThreadKey);
-    if (!activeThread) return null;
+    if (!activeThread || activeThread.projectId === null) return null;
     const physicalKey =
       projectPhysicalKeyByScopedRef.get(
         scopedProjectKey(scopeProjectRef(activeThread.environmentId, activeThread.projectId)),
@@ -3137,6 +3199,7 @@ export default function Sidebar() {
   const threadsByProjectKey = useMemo(() => {
     const next = new Map<string, SidebarThreadSummary[]>();
     for (const thread of sidebarThreads) {
+      if (thread.projectId === null) continue;
       const physicalKey =
         projectPhysicalKeyByScopedRef.get(
           scopedProjectKey(scopeProjectRef(thread.environmentId, thread.projectId)),
@@ -3262,12 +3325,26 @@ export default function Sidebar() {
     () => sidebarThreads.filter((thread) => thread.archivedAt === null),
     [sidebarThreads],
   );
+  const projectlessThreads = useMemo(
+    () =>
+      sortThreads(
+        visibleThreads.filter((thread) => thread.projectId === null),
+        sidebarThreadSortOrder,
+      ),
+    [sidebarThreadSortOrder, visibleThreads],
+  );
   const sortedProjects = useMemo(() => {
     const sortableProjects = sidebarProjects.map((project) => ({
       ...project,
       id: project.projectKey,
     }));
     const sortableThreads = visibleThreads.map((thread) => {
+      if (thread.projectId === null) {
+        return {
+          ...thread,
+          projectId: `projectless:${thread.environmentId}` as ProjectId,
+        };
+      }
       const physicalKey =
         projectPhysicalKeyByScopedRef.get(
           scopedProjectKey(scopeProjectRef(thread.environmentId, thread.projectId)),
@@ -3295,8 +3372,11 @@ export default function Sidebar() {
   ]);
   const isManualProjectSorting = sidebarProjectSortOrder === "manual";
   const visibleSidebarThreadKeys = useMemo(
-    () =>
-      sortedProjects.flatMap((project) => {
+    () => [
+      ...projectlessThreads.map((thread) =>
+        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+      ),
+      ...sortedProjects.flatMap((project) => {
         const projectThreads = sortThreads(
           (threadsByProjectKey.get(project.projectKey) ?? []).filter(
             (thread) => thread.archivedAt === null,
@@ -3331,10 +3411,12 @@ export default function Sidebar() {
           scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
         );
       }),
+    ],
     [
       sidebarThreadSortOrder,
       sidebarThreadPreviewCount,
       expandedThreadListsByProject,
+      projectlessThreads,
       projectExpandedById,
       routeThreadKey,
       sortedProjects,
@@ -3615,8 +3697,11 @@ export default function Sidebar() {
             handleProjectDragEnd={handleProjectDragEnd}
             handleProjectDragCancel={handleProjectDragCancel}
             handleNewThread={handleNewThread}
+            handleProjectlessThread={handleProjectlessThread}
             archiveThread={archiveThread}
             deleteThread={deleteThread}
+            projectlessThreads={projectlessThreads}
+            navigateToThread={navigateToThread}
             sortedProjects={sortedProjects}
             expandedThreadListsByProject={expandedThreadListsByProject}
             activeRouteProjectKey={activeRouteProjectKey}

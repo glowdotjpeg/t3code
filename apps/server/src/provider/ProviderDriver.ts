@@ -22,6 +22,10 @@
  * @module provider/ProviderDriver
  */
 import type {
+  ProviderSkillCreateInput,
+  ProviderSkillManagementCapabilities,
+  ProviderSkillManagementError,
+  ProviderSkillSetEnabledInput,
   ProviderDriverKind,
   ProviderInstanceEnvironment,
   ProviderInstanceId,
@@ -71,6 +75,15 @@ export interface ProviderInstance {
   readonly snapshot: ServerProviderShape;
   readonly adapter: ProviderAdapterShape<ProviderAdapterError>;
   readonly textGeneration: TextGeneration.TextGeneration["Service"];
+  readonly skillManagement?: {
+    readonly capabilities: ProviderSkillManagementCapabilities;
+    readonly create: (
+      input: Omit<ProviderSkillCreateInput, "instanceId">,
+    ) => Effect.Effect<string, ProviderSkillManagementError>;
+    readonly setEnabled?: (
+      input: Omit<ProviderSkillSetEnabledInput, "instanceId">,
+    ) => Effect.Effect<boolean, ProviderSkillManagementError>;
+  };
 }
 
 export interface ProviderContinuationIdentity {

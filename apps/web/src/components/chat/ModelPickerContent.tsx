@@ -5,7 +5,16 @@ import {
 } from "@t3tools/contracts";
 import { resolveSelectableModel } from "@t3tools/shared/model";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
-import { memo, useMemo, useState, useCallback, useEffect, useLayoutEffect, useRef } from "react";
+import {
+  memo,
+  type ReactNode,
+  useMemo,
+  useState,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+} from "react";
 import { SearchIcon } from "lucide-react";
 import { ModelListRow } from "./ModelListRow";
 import { ModelPickerSidebar } from "./ModelPickerSidebar";
@@ -84,6 +93,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
    * model set but are free to diverge via customModels).
    */
   modelOptionsByInstance: ReadonlyMap<ProviderInstanceId, ReadonlyArray<ModelEsque>>;
+  traitsPicker?: ReactNode;
   terminalOpen: boolean;
   onRequestClose?: () => void;
   getModelDisabledReason?: (instanceId: ProviderInstanceId, model: string) => string | null;
@@ -664,6 +674,12 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
             <ComboboxEmpty className="not-empty:py-6 empty:h-0 text-xs font-normal leading-snug">
               No models found
             </ComboboxEmpty>
+            {props.traitsPicker ? (
+              <div className="flex shrink-0 items-center justify-between gap-3 border-border/70 border-t px-3 py-2">
+                <span className="text-muted-foreground text-xs">Model options</span>
+                {props.traitsPicker}
+              </div>
+            ) : null}
           </div>
         </Combobox>
       </div>

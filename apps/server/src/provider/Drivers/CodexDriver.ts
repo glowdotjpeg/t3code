@@ -21,7 +21,14 @@
  *
  * @module provider/Drivers/CodexDriver
  */
-import { CodexSettings, ProviderDriverKind, type ServerProvider } from "@t3tools/contracts";
+import * as NodeOS from "node:os";
+
+import {
+  CodexSettings,
+  ProviderDriverKind,
+  ProviderSkillManagementError,
+  type ServerProvider,
+} from "@t3tools/contracts";
 import * as Duration from "effect/Duration";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
@@ -36,9 +43,15 @@ import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProviderDriverError } from "../Errors.ts";
 import { makeCodexAdapter } from "../Layers/CodexAdapter.ts";
-import { checkCodexProviderStatus, makePendingCodexProvider } from "../Layers/CodexProvider.ts";
+import {
+  checkCodexProviderStatus,
+  makePendingCodexProvider,
+  setCodexSkillEnabled,
+} from "../Layers/CodexProvider.ts";
+import { resolveCodexLaunchArgs } from "../Layers/codexLaunchArgs.ts";
 import { ProviderEventLoggers } from "../Layers/ProviderEventLoggers.ts";
 import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
+import { createProviderSkillFile } from "../ProviderSkillFiles.ts";
 import type { ProviderDriver, ProviderInstance } from "../ProviderDriver.ts";
 import type { ServerProviderDraft } from "../providerSnapshot.ts";
 import { mergeProviderInstanceEnvironment } from "../ProviderInstanceEnvironment.ts";
@@ -103,6 +116,7 @@ const withInstanceIdentity =
     ...(input.displayName ? { displayName: input.displayName } : {}),
     ...(input.accentColor ? { accentColor: input.accentColor } : {}),
     continuation: { groupKey: input.continuationGroupKey },
+    skillManagement: { canCreate: true, canToggle: true },
   });
 
 export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
@@ -116,6 +130,9 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
   create: ({ instanceId, displayName, accentColor, environment, enabled, config }) =>
     Effect.gen(function* () {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const { cwd } = yield* ServerConfig;
       const httpClient = yield* HttpClient.HttpClient;
       const serverSettings = yield* ServerSettingsService;
       const eventLoggers = yield* ProviderEventLoggers;
@@ -166,7 +183,12 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
       // in as instance rebuilds from the registry rather than in-place
       // updates. Pre-provide `ChildProcessSpawner` so the check fits
       // `makeManagedServerProvider.checkProvider`'s `R = never`.
-      const checkProvider = checkCodexProviderStatus(effectiveConfig, undefined, processEnv).pipe(
+      const checkProvider = checkCodexProviderStatus(
+        effectiveConfig,
+        undefined,
+        processEnv,
+        adapter.publishAccountRateLimits,
+      ).pipe(
         Effect.map(stampIdentity),
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
       );
@@ -199,6 +221,63 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
         ),
       );
 
+      const skillManagement: NonNullable<ProviderInstance["skillManagement"]> = {
+        capabilities: { canCreate: true, canToggle: true },
+        create: (input) => {
+          const root =
+            input.scope === "project"
+              ? path.join(cwd, ".agents", "skills")
+              : path.join(NodeOS.homedir(), ".agents", "skills");
+          return createProviderSkillFile({
+            fileSystem,
+            path,
+            root,
+            ...input,
+          }).pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProviderSkillManagementError({
+                  instanceId,
+                  operation: "create",
+                  reason: cause instanceof Error ? cause.message : "Unable to create the skill.",
+                  cause,
+                }),
+            ),
+          );
+        },
+        setEnabled: (input) =>
+          Effect.gen(function* () {
+            const current = yield* snapshot.getSnapshot;
+            if (!current.skills.some((skill) => skill.path === input.path)) {
+              return yield* new ProviderSkillManagementError({
+                instanceId,
+                operation: "setEnabled",
+                reason: "The selected skill is not available to this provider.",
+              });
+            }
+            return yield* setCodexSkillEnabled({
+              binaryPath: effectiveConfig.binaryPath,
+              ...(effectiveConfig.homePath ? { homePath: effectiveConfig.homePath } : {}),
+              launchArgs: resolveCodexLaunchArgs(effectiveConfig.launchArgs, processEnv),
+              cwd,
+              environment: processEnv,
+              ...input,
+            }).pipe(
+              Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+              Effect.scoped,
+              Effect.mapError(
+                (cause) =>
+                  new ProviderSkillManagementError({
+                    instanceId,
+                    operation: "setEnabled",
+                    reason: cause.message,
+                    cause,
+                  }),
+              ),
+            );
+          }),
+      };
+
       return {
         instanceId,
         driverKind: DRIVER_KIND,
@@ -209,6 +288,7 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
         snapshot,
         adapter,
         textGeneration,
+        skillManagement,
       } satisfies ProviderInstance;
     }),
 };

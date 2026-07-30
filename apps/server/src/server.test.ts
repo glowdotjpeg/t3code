@@ -87,6 +87,7 @@ import { makeManualOnlyProviderMaintenanceCapabilities } from "./provider/provid
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
 import * as ServerSettings from "./serverSettings.ts";
+import * as UsageService from "./usage/UsageService.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
 import * as PreviewManager from "./preview/Manager.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
@@ -548,6 +549,8 @@ const buildAppUnderTest = (options?: {
           getProviders: Effect.succeed([]),
           refresh: () => Effect.succeed([]),
           refreshInstance: () => Effect.succeed([]),
+          setSkillEnabled: () => Effect.die("Skill management not stubbed in this test"),
+          createSkill: () => Effect.die("Skill management not stubbed in this test"),
           getProviderMaintenanceCapabilitiesForInstance: (_instanceId, provider) =>
             Effect.succeed(
               makeManualOnlyProviderMaintenanceCapabilities({ provider, packageName: null }),
@@ -558,14 +561,24 @@ const buildAppUnderTest = (options?: {
         }),
       ),
       Layer.provide(
-        Layer.mock(ServerSettings.ServerSettingsService)({
-          start: Effect.void,
-          ready: Effect.void,
-          getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
-          updateSettings: () => Effect.succeed(DEFAULT_SERVER_SETTINGS),
-          streamChanges: Stream.empty,
-          ...options?.layers?.serverSettings,
-        }),
+        Layer.mergeAll(
+          Layer.mock(ServerSettings.ServerSettingsService)({
+            start: Effect.void,
+            ready: Effect.void,
+            getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
+            updateSettings: () => Effect.succeed(DEFAULT_SERVER_SETTINGS),
+            streamChanges: Stream.empty,
+            ...options?.layers?.serverSettings,
+          }),
+          Layer.mock(UsageService.UsageService)({
+            getDashboard: () => Effect.die("UsageService not stubbed in this test"),
+            exportHistory: () => Effect.die("UsageService not stubbed in this test"),
+            importHistory: () => Effect.die("UsageService not stubbed in this test"),
+            calibrate: () => Effect.die("UsageService not stubbed in this test"),
+            clearHistory: Effect.die("UsageService not stubbed in this test"),
+            setProjectBudget: () => Effect.die("UsageService not stubbed in this test"),
+          }),
+        ),
       ),
       Layer.provide(
         Layer.mock(ExternalLauncher.ExternalLauncher)({

@@ -30,6 +30,7 @@ const CURSOR_DRIVER = ProviderDriverKind.make("cursor");
 const fakeCodexAdapter: CodexAdapter.CodexAdapterShape = {
   provider: CODEX_DRIVER,
   capabilities: { sessionModelSwitch: "in-session" },
+  publishAccountRateLimits: vi.fn(() => Effect.void),
   startSession: vi.fn(),
   sendTurn: vi.fn(),
   interruptTurn: vi.fn(),

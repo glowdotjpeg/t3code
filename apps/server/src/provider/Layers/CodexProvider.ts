@@ -45,6 +45,7 @@ const CODEX_PRESENTATION = {
 
 export interface CodexAppServerProviderSnapshot {
   readonly account: CodexSchema.V2GetAccountResponse;
+  readonly rateLimits: CodexSchema.V2GetAccountRateLimitsResponse | null;
   readonly version: string | undefined;
   readonly models: ReadonlyArray<ServerProviderModel>;
   readonly skills: ReadonlyArray<ServerProviderSkill>;
@@ -313,6 +314,62 @@ export function buildCodexInitializeParams(): CodexSchema.V1InitializeParams {
   };
 }
 
+export const setCodexSkillEnabled = Effect.fn("setCodexSkillEnabled")(function* (input: {
+  readonly binaryPath: string;
+  readonly homePath?: string;
+  readonly launchArgs?: string;
+  readonly cwd: string;
+  readonly environment?: NodeJS.ProcessEnv;
+  readonly path: string;
+  readonly enabled: boolean;
+}) {
+  const resolvedHomePath = input.homePath ? expandHomePath(input.homePath) : undefined;
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const environment = {
+    ...input.environment,
+    ...(resolvedHomePath ? { CODEX_HOME: resolvedHomePath } : {}),
+  };
+  const spawnCommand = yield* resolveSpawnCommand(
+    input.binaryPath,
+    codexAppServerArgs(input.launchArgs),
+    {
+      env: environment,
+      extendEnv: true,
+    },
+  );
+  const child = yield* spawner
+    .spawn(
+      ChildProcess.make(spawnCommand.command, spawnCommand.args, {
+        cwd: input.cwd,
+        env: environment,
+        extendEnv: true,
+        forceKillAfter: CODEX_APP_SERVER_PROBE_FORCE_KILL_AFTER,
+        shell: spawnCommand.shell,
+      }),
+    )
+    .pipe(
+      Effect.mapError(
+        (cause) =>
+          new CodexErrors.CodexAppServerSpawnError({
+            command: `${input.binaryPath} app-server`,
+            cause,
+          }),
+      ),
+    );
+  const clientContext = yield* Layer.build(CodexClient.layerChildProcess(child));
+  const client = yield* Effect.service(CodexClient.CodexAppServerClient).pipe(
+    Effect.provide(clientContext),
+  );
+
+  yield* client.request("initialize", buildCodexInitializeParams());
+  yield* client.notify("initialized", undefined);
+  const result = yield* client.request("skills/config/write", {
+    path: input.path,
+    enabled: input.enabled,
+  });
+  return result.effectiveEnabled;
+});
+
 const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(function* (input: {
   readonly binaryPath: string;
   readonly homePath?: string;
@@ -383,24 +440,27 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
   if (!accountResponse.account && accountResponse.requiresOpenaiAuth) {
     return {
       account: accountResponse,
+      rateLimits: null,
       version,
       models: appendCustomCodexModels([], input.customModels ?? []),
       skills: [],
     } satisfies CodexAppServerProviderSnapshot;
   }
 
-  const [skillsResponse, models] = yield* Effect.all(
+  const [skillsResponse, models, rateLimits] = yield* Effect.all(
     [
       client.request("skills/list", {
         cwds: [input.cwd],
       }),
       requestAllCodexModels(client),
+      client.request("account/rateLimits/read", undefined).pipe(Effect.option),
     ],
     { concurrency: "unbounded" },
   );
 
   return {
     account: accountResponse,
+    rateLimits: Option.getOrNull(rateLimits),
     version,
     models: applyPreferredCodexDefaultModel(
       appendCustomCodexModels(models, input.customModels ?? []),
@@ -509,6 +569,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
     ChildProcessSpawner.ChildProcessSpawner | Scope.Scope
   > = probeCodexAppServerProvider,
   environment?: NodeJS.ProcessEnv,
+  onRateLimits?: (rateLimits: CodexSchema.V2GetAccountRateLimitsResponse) => Effect.Effect<void>,
 ): Effect.fn.Return<
   ServerProviderDraft,
   ServerSettingsError,
@@ -588,6 +649,9 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
 
   const snapshot = probeResult.success.value;
   const accountStatus = accountProbeStatus(snapshot.account);
+  if (snapshot.rateLimits && onRateLimits) {
+    yield* onRateLimits(snapshot.rateLimits);
+  }
 
   return buildServerProvider({
     presentation: CODEX_PRESENTATION,

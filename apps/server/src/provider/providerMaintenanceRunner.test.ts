@@ -189,6 +189,8 @@ function makeRegistry(
       getProviders: Ref.get(providersRef),
       refresh: () => Ref.get(providersRef),
       refreshInstance: () => Ref.get(providersRef),
+      setSkillEnabled: () => Effect.die("Unexpected setSkillEnabled call"),
+      createSkill: () => Effect.die("Unexpected createSkill call"),
       getProviderMaintenanceCapabilitiesForInstance: (_instanceId, provider) =>
         Effect.succeed(lifecycleFor(provider)),
       setProviderMaintenanceActionState,

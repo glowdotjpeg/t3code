@@ -7,6 +7,10 @@
  * @module ProviderRegistry
  */
 import type {
+  ProviderSkillCreateInput,
+  ProviderSkillCreateResult,
+  ProviderSkillManagementError,
+  ProviderSkillSetEnabledInput,
   ProviderInstanceId,
   ProviderDriverKind,
   ServerProvider,
@@ -47,6 +51,14 @@ export interface ProviderRegistryShape {
   readonly refreshInstance: (
     instanceId: ProviderInstanceId,
   ) => Effect.Effect<ReadonlyArray<ServerProvider>>;
+
+  readonly setSkillEnabled: (
+    input: ProviderSkillSetEnabledInput,
+  ) => Effect.Effect<ReadonlyArray<ServerProvider>, ProviderSkillManagementError>;
+
+  readonly createSkill: (
+    input: ProviderSkillCreateInput,
+  ) => Effect.Effect<ProviderSkillCreateResult, ProviderSkillManagementError>;
 
   /**
    * Resolve the maintenance capabilities owned by one live provider instance.

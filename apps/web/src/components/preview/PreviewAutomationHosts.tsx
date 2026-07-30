@@ -378,7 +378,7 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
               activeSnapshot = snapshot;
               tabId = activeTabId;
             }
-            if (input.show ?? true) {
+            if (input.show ?? false) {
               useRightPanelStore.getState().openBrowser(threadRef, activeTabId);
             }
             if (activeSnapshot && previewAutomationOpenNeedsOverlay(input, activeSnapshot)) {

@@ -194,6 +194,14 @@
     "./httpReadiness": {
       "types": "./src/httpReadiness.ts",
       "import": "./src/httpReadiness.ts"
+    },
+    "./usageForecasting": {
+      "types": "./src/usageForecasting.ts",
+      "import": "./src/usageForecasting.ts"
+    },
+    "./usageData": {
+      "types": "./src/usageData.ts",
+      "import": "./src/usageData.ts"
     }
   },
   "scripts": {

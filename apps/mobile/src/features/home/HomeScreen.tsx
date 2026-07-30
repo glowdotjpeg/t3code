@@ -294,7 +294,11 @@ export function HomeScreen(props: HomeScreenProps) {
       selectedProjectRefKeys === null
         ? props.threads
         : props.threads.filter((thread) =>
-            selectedProjectRefKeys.has(scopedProjectKey(thread.environmentId, thread.projectId)),
+            thread.projectId === null
+              ? false
+              : selectedProjectRefKeys.has(
+                  scopedProjectKey(thread.environmentId, thread.projectId),
+                ),
           ),
     [props.threads, selectedProjectRefKeys],
   );
@@ -553,47 +557,48 @@ export function HomeScreen(props: HomeScreenProps) {
   const threadListV2Items = threadListV2Layout.items;
 
   const renderV2Item = useCallback(
-    ({ item }: { readonly item: ThreadListV2Item }) => (
-      <ThreadListV2Row
-        thread={item.thread}
-        variant={item.variant}
-        showSettledDivider={item.showSettledDivider}
-        project={
-          projectByKey.get(scopedProjectKey(item.thread.environmentId, item.thread.projectId)) ??
-          null
-        }
-        projectTitle={v2ProjectTitleByProjectKey.get(
-          scopedProjectKey(item.thread.environmentId, item.thread.projectId),
-        )}
-        providerDriver={
-          serverConfigs
-            .get(item.thread.environmentId)
-            ?.providers.find(
-              (provider) =>
-                provider.instanceId ===
-                (item.thread.session?.providerInstanceId ?? item.thread.modelSelection.instanceId),
-            )?.driver ?? null
-        }
-        environmentLabel={
-          Object.keys(props.savedConnectionsById).length > 1
-            ? (props.savedConnectionsById[item.thread.environmentId]?.environmentLabel ?? null)
-            : null
-        }
-        onSelectThread={props.onSelectThread}
-        onDeleteThread={handleDeleteThread}
-        onArchiveThread={props.onArchiveThread}
-        settlementSupported={settlementEnvironmentIds.has(item.thread.environmentId)}
-        onSettleThread={handleSettleThread}
-        onUnsettleThread={handleUnsettleThread}
-        onChangeRequestState={handleChangeRequestState}
-        projectCwd={
-          projectCwdByKey.get(scopedProjectKey(item.thread.environmentId, item.thread.projectId)) ??
-          null
-        }
-        onSwipeableClose={handleSwipeableClose}
-        onSwipeableWillOpen={handleSwipeableWillOpen}
-      />
-    ),
+    ({ item }: { readonly item: ThreadListV2Item }) => {
+      const projectKey =
+        item.thread.projectId === null
+          ? null
+          : scopedProjectKey(item.thread.environmentId, item.thread.projectId);
+      return (
+        <ThreadListV2Row
+          thread={item.thread}
+          variant={item.variant}
+          showSettledDivider={item.showSettledDivider}
+          project={projectKey === null ? null : (projectByKey.get(projectKey) ?? null)}
+          projectTitle={
+            projectKey === null ? "No project" : v2ProjectTitleByProjectKey.get(projectKey)
+          }
+          providerDriver={
+            serverConfigs
+              .get(item.thread.environmentId)
+              ?.providers.find(
+                (provider) =>
+                  provider.instanceId ===
+                  (item.thread.session?.providerInstanceId ??
+                    item.thread.modelSelection.instanceId),
+              )?.driver ?? null
+          }
+          environmentLabel={
+            Object.keys(props.savedConnectionsById).length > 1
+              ? (props.savedConnectionsById[item.thread.environmentId]?.environmentLabel ?? null)
+              : null
+          }
+          onSelectThread={props.onSelectThread}
+          onDeleteThread={handleDeleteThread}
+          onArchiveThread={props.onArchiveThread}
+          settlementSupported={settlementEnvironmentIds.has(item.thread.environmentId)}
+          onSettleThread={handleSettleThread}
+          onUnsettleThread={handleUnsettleThread}
+          onChangeRequestState={handleChangeRequestState}
+          projectCwd={projectKey === null ? null : (projectCwdByKey.get(projectKey) ?? null)}
+          onSwipeableClose={handleSwipeableClose}
+          onSwipeableWillOpen={handleSwipeableWillOpen}
+        />
+      );
+    },
     [
       handleChangeRequestState,
       handleDeleteThread,
@@ -667,8 +672,11 @@ export function HomeScreen(props: HomeScreenProps) {
                 props.savedConnectionsById[thread.environmentId]?.environmentLabel ?? null
               }
               projectCwd={
-                projectCwdByKey.get(scopedProjectKey(thread.environmentId, thread.projectId)) ??
-                null
+                thread.projectId === null
+                  ? null
+                  : (projectCwdByKey.get(
+                      scopedProjectKey(thread.environmentId, thread.projectId),
+                    ) ?? null)
               }
               isLast={item.isLast}
               onArchiveThread={props.onArchiveThread}

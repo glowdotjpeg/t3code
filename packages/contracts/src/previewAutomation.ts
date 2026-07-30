@@ -88,7 +88,8 @@ export const PreviewAutomationOpenInput = Schema.Struct({
   }),
   show: Schema.optional(
     Schema.Boolean.annotate({
-      description: "Whether to reveal the preview panel to the human. Defaults to true.",
+      description:
+        "Whether to reveal the preview panel to the human. Defaults to false so agent automation does not interrupt their workspace.",
     }),
   ),
   reuseExistingTab: Schema.optional(

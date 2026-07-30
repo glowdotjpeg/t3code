@@ -67,6 +67,7 @@ import { MessageCopyButton } from "./MessageCopyButton";
 import {
   computeStableMessagesTimelineRows,
   deriveMessagesTimelineRows,
+  isPreviewAutomationWorkEntry,
   normalizeCompactToolLabel,
   resolveAssistantMessageCopyState,
   resolveTimelineIsAtEnd,
@@ -132,6 +133,8 @@ interface TimelineRowSharedState {
   activeThreadEnvironmentId: EnvironmentId;
   onRevertUserMessage: (messageId: MessageId) => void;
   onImageExpand: (preview: ExpandedImagePreview) => void;
+  browserAgentLabel: string;
+  onOpenBrowser: () => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   onToggleTurnFold: (turnId: TurnId) => void;
   onToggleWorkGroup: (groupId: string, anchorElement?: HTMLElement) => void;
@@ -170,6 +173,8 @@ interface MessagesTimelineProps {
   onRevertUserMessage: (messageId: MessageId) => void;
   isRevertingCheckpoint: boolean;
   onImageExpand: (preview: ExpandedImagePreview) => void;
+  browserAgentLabel: string;
+  onOpenBrowser: () => void;
   activeThreadEnvironmentId: EnvironmentId;
   markdownCwd: string | undefined;
   resolvedTheme: "light" | "dark";
@@ -205,6 +210,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onRevertUserMessage,
   isRevertingCheckpoint,
   onImageExpand,
+  browserAgentLabel,
+  onOpenBrowser,
   activeThreadEnvironmentId,
   markdownCwd,
   resolvedTheme,
@@ -427,6 +434,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       activeThreadEnvironmentId,
       onRevertUserMessage,
       onImageExpand,
+      browserAgentLabel,
+      onOpenBrowser,
       onOpenTurnDiff,
       onToggleTurnFold,
       onToggleWorkGroup,
@@ -441,6 +450,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       activeThreadEnvironmentId,
       onRevertUserMessage,
       onImageExpand,
+      browserAgentLabel,
+      onOpenBrowser,
       onOpenTurnDiff,
       onToggleTurnFold,
       onToggleWorkGroup,
@@ -1155,7 +1166,11 @@ const WorkGroupSection = memo(function WorkGroupSection({
 }) {
   const { workspaceRoot } = use(TimelineRowCtx);
   const nonEmptyEntries = useMemo(
-    () => groupedEntries.filter((entry) => !workEntryIndicatesToolNeutralStatus(entry)),
+    () =>
+      groupedEntries.filter(
+        (entry) =>
+          isPreviewAutomationWorkEntry(entry) || !workEntryIndicatesToolNeutralStatus(entry),
+      ),
     [groupedEntries],
   );
   const onlyToolEntries = nonEmptyEntries.every((entry) => workLogEntryIsToolLike(entry));
@@ -1892,6 +1907,7 @@ function workEntryIconName(workEntry: TimelineWorkEntry): WorkEntryIconName {
   }
   if (workEntry.itemType === "web_search") return "globe";
   if (workEntry.itemType === "image_view") return "eye";
+  if (isPreviewAutomationWorkEntry(workEntry)) return "globe";
 
   switch (workEntry.itemType) {
     case "mcp_tool_call":
@@ -1927,11 +1943,15 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
 }) {
   const { workEntry, workspaceRoot } = props;
   const activity = use(TimelineRowActivityCtx);
+  const { browserAgentLabel, onOpenBrowser } = use(TimelineRowCtx);
   const [expanded, setExpanded] = useState(false);
   const iconConfig = workToneIcon(workEntry.tone);
   const showWarningIndicator = workEntry.sourceActivityKind === "runtime.warning";
   const entryIconName = showWarningIndicator ? "x" : workEntryIconName(workEntry);
-  const heading = toolWorkEntryHeading(workEntry);
+  const isBrowserAutomation = isPreviewAutomationWorkEntry(workEntry);
+  const heading = isBrowserAutomation
+    ? `${browserAgentLabel} is using the browser`
+    : toolWorkEntryHeading(workEntry);
   const rawPreview = workEntryPreview(workEntry, workspaceRoot);
   const preview =
     rawPreview &&
@@ -1941,7 +1961,8 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
       : rawPreview;
   const displayText = preview ? `${heading} - ${preview}` : heading;
   const expandedBody = buildToolCallExpandedBody(workEntry, workspaceRoot);
-  const canExpand = expandedBody !== null;
+  const canExpand = expandedBody !== null && !isBrowserAutomation;
+  const isInteractive = isBrowserAutomation || canExpand;
   const showFailedIndicator = workEntryIndicatesToolFailure(workEntry);
   const showDestructiveRowStyle =
     showFailedIndicator &&
@@ -1966,26 +1987,40 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   const showSuccessIndicator =
     workEntryIndicatesToolSuccess(workEntry) ||
     (turnSettled && workEntryIndicatesToolNeutralStatus(workEntry));
-  const rowToggleProps = canExpand
+  const rowToggleProps = isBrowserAutomation
     ? {
         role: "button" as const,
         tabIndex: 0 as const,
-        "aria-label": displayText,
-        onClick: () => setExpanded((v) => !v),
+        "aria-label": `${heading}. Open browser`,
+        onClick: onOpenBrowser,
         onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
-            setExpanded((v) => !v);
+            onOpenBrowser();
           }
         },
       }
-    : {};
+    : canExpand
+      ? {
+          role: "button" as const,
+          tabIndex: 0 as const,
+          "aria-label": displayText,
+          onClick: () => setExpanded((v) => !v),
+          onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              setExpanded((v) => !v);
+            }
+          },
+        }
+      : {};
 
   return (
     <div
       className={cn(
         "flex flex-col rounded-md px-0.5 py-0.5 transition-colors",
-        canExpand &&
+        isBrowserAutomation && "group",
+        isInteractive &&
           "cursor-pointer hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70",
       )}
       {...rowToggleProps}
@@ -2000,7 +2035,15 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
           <div className="min-w-0 flex-1 overflow-hidden">
             <p className="flex min-w-0 w-full items-baseline gap-1.5 text-[12px] leading-5">
-              <span className={cn("min-w-0 shrink truncate", headingClass)}>{heading}</span>
+              <span
+                className={cn(
+                  "min-w-0 shrink truncate",
+                  headingClass,
+                  isBrowserAutomation && "underline-offset-2 group-hover:underline",
+                )}
+              >
+                {heading}
+              </span>
               {preview && (
                 <span className="min-w-0 flex-1 truncate text-muted-foreground/55">{preview}</span>
               )}

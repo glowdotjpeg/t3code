@@ -261,6 +261,7 @@ function makeCodexProbeSnapshot(
       },
       requiresOpenaiAuth: false,
     },
+    rateLimits: null,
     models: [
       {
         slug: "gpt-live-codex",
@@ -361,6 +362,37 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
 
           assert.strictEqual(status.status, "ready");
           assert.strictEqual(observedLaunchArgs, "--strict-config --enable foo");
+        }),
+      );
+
+      it.effect("publishes account rate limits discovered by the provider probe", () =>
+        Effect.gen(function* () {
+          const observedRateLimits = yield* Ref.make<unknown>(null);
+          const rateLimits = {
+            rateLimits: {
+              primary: {
+                usedPercent: 42,
+                windowDurationMins: 300,
+                resetsAt: 1_785_258_175,
+              },
+              secondary: {
+                usedPercent: 74,
+                windowDurationMins: 10_080,
+                resetsAt: 1_785_258_175,
+              },
+            },
+            rateLimitsByLimitId: {},
+          };
+
+          const status = yield* checkCodexProviderStatus(
+            defaultCodexSettings,
+            () => Effect.succeed(makeCodexProbeSnapshot({ rateLimits })),
+            undefined,
+            (snapshot) => Ref.set(observedRateLimits, snapshot),
+          );
+
+          assert.strictEqual(status.status, "ready");
+          assert.deepStrictEqual(yield* Ref.get(observedRateLimits), rateLimits);
         }),
       );
 

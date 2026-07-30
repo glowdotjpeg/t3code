@@ -11,6 +11,7 @@ import type {
   ServerProvider,
   ThreadId,
   TurnId,
+  UsageSettings,
 } from "@t3tools/contracts";
 import {
   ProviderDriverKind,
@@ -20,6 +21,7 @@ import {
 } from "@t3tools/contracts";
 import type { EnvironmentConnectionPresentation } from "@t3tools/client-runtime/connection";
 import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
+import { estimateTextTokens } from "@t3tools/shared/usageData";
 import { createModelSelection, normalizeModelSlug } from "@t3tools/shared/model";
 import {
   memo,
@@ -84,10 +86,10 @@ import { searchSlashCommandItems } from "./composerSlashCommandSearch";
 import {
   getComposerPromptInjectionState,
   getComposerProviderState,
-  renderProviderTraitsMenuContent,
   renderProviderTraitsPicker,
 } from "./composerProviderState";
 import { ContextWindowMeter } from "./ContextWindowMeter";
+import { UsageStatusWidget } from "../usage/UsageStatusWidget";
 import { buildExpandedImagePreview, type ExpandedImagePreview } from "./ExpandedImagePreview";
 import { basenameOfPath } from "../../pierre-icons";
 import { cn, randomUUID } from "~/lib/utils";
@@ -155,7 +157,6 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import {
-  BotIcon,
   CircleAlertIcon,
   ListTodoIcon,
   PencilRulerIcon,
@@ -189,6 +190,8 @@ import {
 import { formatProviderSkillDisplayName } from "../../providerSkillPresentation";
 import { searchProviderSkills } from "../../providerSkillSearch";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
+import { useUsageDashboard } from "../../hooks/useUsageDashboard";
+import { ensureLocalApi } from "../../localApi";
 import type { ReviewCommentContext } from "../../reviewCommentContext";
 
 const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES / (1024 * 1024))}MB`;
@@ -273,48 +276,35 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
 }) {
   const runtimeModeOption = runtimeModeConfig[props.runtimeMode];
   const RuntimeModeIcon = runtimeModeOption.icon;
-  const interactionModeTooltip =
-    props.interactionMode === "plan"
-      ? "Plan mode — click to return to normal build mode"
-      : "Default mode — click to enter plan mode";
+  const interactionModeTooltip = "Plan mode — click to return to build mode";
   const planSidebarTooltip = props.planSidebarOpen
     ? `Hide ${props.planSidebarLabel.toLowerCase()} sidebar`
     : `Show ${props.planSidebarLabel.toLowerCase()} sidebar`;
 
-  const interactionModeToggle = props.showInteractionModeToggle ? (
-    <>
-      <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              variant="ghost"
-              className={cn(
-                "shrink-0 whitespace-nowrap px-2 sm:px-3",
-                props.interactionMode === "plan"
-                  ? "bg-blue-500/10 text-blue-400 hover:bg-blue-500/15 hover:text-blue-300"
-                  : "text-muted-foreground/70 hover:text-foreground/80",
-              )}
-              size="sm"
-              type="button"
-              onClick={props.onToggleInteractionMode}
-              aria-label={interactionModeTooltip}
-            />
-          }
-        >
-          {props.interactionMode === "plan" ? (
+  const interactionModeToggle =
+    props.showInteractionModeToggle && props.interactionMode === "plan" ? (
+      <>
+        <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                className="shrink-0 whitespace-nowrap bg-accent px-2 text-foreground hover:bg-accent/80 sm:px-3"
+                size="sm"
+                type="button"
+                onClick={props.onToggleInteractionMode}
+                aria-label={interactionModeTooltip}
+              />
+            }
+          >
             <PencilRulerIcon className="text-current opacity-100" />
-          ) : (
-            <BotIcon />
-          )}
-          <span className="sr-only sm:not-sr-only">
-            {props.interactionMode === "plan" ? "Plan" : "Build"}
-          </span>
-        </TooltipTrigger>
-        <TooltipPopup side="top">{interactionModeTooltip}</TooltipPopup>
-      </Tooltip>
-    </>
-  ) : null;
+            <span className="sr-only sm:not-sr-only">Plan</span>
+          </TooltipTrigger>
+          <TooltipPopup side="top">{interactionModeTooltip}</TooltipPopup>
+        </Tooltip>
+      </>
+    ) : null;
 
   return (
     <>
@@ -401,6 +391,9 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
 
 const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(props: {
   compact: boolean;
+  environmentId: EnvironmentId;
+  conversationId: ThreadId | null;
+  usageSettings: UsageSettings;
   activeContextWindow: ReturnType<typeof deriveLatestContextWindowSnapshot>;
   activeThreadProviderDisplayName: string | null;
   isPreparingWorktree: boolean;
@@ -425,6 +418,11 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
 }) {
   return (
     <>
+      <UsageStatusWidget
+        environmentId={props.environmentId}
+        conversationId={props.conversationId}
+        settings={props.usageSettings}
+      />
       {props.activeContextWindow ? (
         <ContextWindowMeter
           usage={props.activeContextWindow}
@@ -931,6 +929,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     () => deriveLatestContextWindowSnapshot(activeThreadActivities ?? []),
     [activeThreadActivities],
   );
+  const { data: usageDashboard } = useUsageDashboard({
+    environmentId,
+    range: "current-period",
+  });
   const activeThreadProviderDisplayName = useMemo(() => {
     if (!activeThreadModelSelection) return null;
     const entry = providerStatuses.find(
@@ -1187,17 +1189,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     [composerDraftTarget, promptRef, scheduleComposerFocus, setComposerDraftPrompt],
   );
 
-  const providerTraitsMenuContent = renderProviderTraitsMenuContent({
-    provider: selectedProvider,
-    instanceId: selectedInstanceId,
-    ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
-    ...(routeKind === "draft" && draftId ? { draftId } : {}),
-    model: selectedModel,
-    models: selectedProviderModels,
-    modelOptions: composerModelOptions?.[selectedInstanceId],
-    prompt,
-    onPromptChange: setPromptFromTraits,
-  });
   const providerTraitsPicker = renderProviderTraitsPicker({
     provider: selectedProvider,
     instanceId: selectedInstanceId,
@@ -1819,12 +1810,142 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         event?.preventDefault();
         return;
       }
+      const projectBudget = usageDashboard?.projectBudgets.find(
+        (budget) => budget.projectId === activeThread?.projectId,
+      );
+      const projectUsage = usageDashboard?.byProject.find(
+        (group) => group.key === activeThread?.projectId,
+      );
+      const consumedProjectBudget =
+        projectBudget && projectUsage
+          ? projectBudget.kind === "weekly-percent"
+            ? usageDashboard?.summary.usedPercent === null ||
+              usageDashboard?.summary.usedPercent === undefined
+              ? null
+              : (usageDashboard.summary.usedPercent * projectUsage.percentageOfTotal) / 100
+            : projectBudget.kind === "tokens"
+              ? projectUsage.totalTokens
+              : projectBudget.kind === "quota-units"
+                ? projectUsage.quotaUnits
+                : projectUsage.requests
+          : null;
+      if (
+        projectBudget?.enforce === true &&
+        consumedProjectBudget !== null &&
+        consumedProjectBudget >= projectBudget.limit
+      ) {
+        event?.preventDefault();
+        toastManager.add({
+          type: "warning",
+          title: "Project usage budget reached",
+          description:
+            "Sending is paused because budget enforcement is enabled for this project. Adjust or disable the budget on the Usage page.",
+        });
+        return;
+      }
+      const estimatedInputTokens =
+        estimateTextTokens(prompt) + (activeContextWindow?.usedTokens ?? 0);
+      const previewThreshold = settings.usage.requestPreviewTokenThreshold;
+      const shouldPreview =
+        settings.usage.requestPreviewEnabled &&
+        settings.usage.selectedMode !== "unrestricted" &&
+        (estimatedInputTokens >= previewThreshold ||
+          (usageDashboard?.summary.activeMode === "emergency" &&
+            estimatedInputTokens >= Math.max(1_000, previewThreshold / 2)));
+      if (shouldPreview) {
+        event?.preventDefault();
+        const calibratedRecords =
+          usageDashboard?.recentRecords.filter(
+            (record) =>
+              record.totalTokens !== null &&
+              record.totalTokens > 0 &&
+              record.officialUsedPercentBefore !== null &&
+              record.officialUsedPercentAfter !== null &&
+              record.officialUsedPercentAfter >= record.officialUsedPercentBefore,
+          ) ?? [];
+        const calibratedTokens = calibratedRecords.reduce(
+          (total, record) => total + (record.totalTokens ?? 0),
+          0,
+        );
+        const calibratedImpact = calibratedRecords.reduce(
+          (total, record) =>
+            total +
+            Math.max(
+              0,
+              (record.officialUsedPercentAfter ?? 0) - (record.officialUsedPercentBefore ?? 0),
+            ),
+          0,
+        );
+        const estimatedQuotaImpact =
+          calibratedTokens > 0
+            ? (estimatedInputTokens / calibratedTokens) * calibratedImpact
+            : null;
+        const remaining =
+          usageDashboard?.summary.remainingPercent === null ||
+          usageDashboard?.summary.remainingPercent === undefined
+            ? "unavailable"
+            : `${usageDashboard.summary.remainingPercent.toFixed(1)}%`;
+        const safeRate =
+          usageDashboard?.forecast.safeDailyRate === null ||
+          usageDashboard?.forecast.safeDailyRate === undefined
+            ? "unavailable"
+            : `${usageDashboard.forecast.safeDailyRate.toFixed(1)}% per day`;
+        const safeRemainingToday = usageDashboard?.forecast.safeRemainingToday ?? null;
+        const budgetComparison =
+          estimatedQuotaImpact === null || safeRemainingToday === null
+            ? "Safe-budget comparison: unavailable"
+            : estimatedQuotaImpact > safeRemainingToday
+              ? "This request may exceed the remaining safe budget for today."
+              : "This request is within the remaining safe budget for today.";
+        void ensureLocalApi()
+          .dialogs.confirm(
+            [
+              `Send a potentially high-usage request with ${selectedModel}?`,
+              "",
+              `Estimated input size: about ${estimatedInputTokens.toLocaleString()} tokens (local estimate)`,
+              `Estimated quota impact: ${estimatedQuotaImpact === null ? "unavailable" : `about ${estimatedQuotaImpact.toFixed(2)}% (calibrated estimate)`}`,
+              `Weekly allowance remaining: ${remaining}`,
+              `Current safe budget: ${safeRate}`,
+              budgetComparison,
+              "",
+              "You can cancel and choose a smaller suitable model from the model selector.",
+            ].join("\n"),
+          )
+          .then((confirmed) => {
+            if (!confirmed) return;
+            onSend();
+            if (shouldBlurMobileComposerOnSubmit()) {
+              blurMobileComposerAfterSend();
+            }
+          });
+        return;
+      }
       onSend(event);
       if (shouldBlurMobileComposerOnSubmit()) {
         blurMobileComposerAfterSend();
       }
     },
-    [blurMobileComposerAfterSend, noProviderAvailable, onSend, shouldBlurMobileComposerOnSubmit],
+    [
+      activeContextWindow?.usedTokens,
+      activeThread?.projectId,
+      blurMobileComposerAfterSend,
+      noProviderAvailable,
+      onSend,
+      prompt,
+      selectedModel,
+      settings.usage.requestPreviewEnabled,
+      settings.usage.requestPreviewTokenThreshold,
+      settings.usage.selectedMode,
+      shouldBlurMobileComposerOnSubmit,
+      usageDashboard?.forecast.safeDailyRate,
+      usageDashboard?.forecast.safeRemainingToday,
+      usageDashboard?.byProject,
+      usageDashboard?.projectBudgets,
+      usageDashboard?.recentRecords,
+      usageDashboard?.summary.usedPercent,
+      usageDashboard?.summary.activeMode,
+      usageDashboard?.summary.remainingPercent,
+    ],
   );
   const expandMobileComposer = useCallback(() => {
     if (composerBlurFrameRef.current !== null) {
@@ -2682,6 +2803,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     instanceEntries={providerInstanceEntries}
                     keybindings={keybindings}
                     modelOptionsByInstance={modelOptionsByInstance}
+                    traitsPicker={providerTraitsPicker}
                     terminalOpen={terminalOpen}
                     open={isComposerModelPickerOpen}
                     {...(composerProviderState.modelPickerIconClassName
@@ -2706,19 +2828,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     planSidebarOpen={planSidebarOpen}
                     runtimeMode={runtimeMode}
                     showInteractionModeToggle={composerProviderControls.showInteractionModeToggle}
-                    traitsMenuContent={providerTraitsMenuContent}
                     onToggleInteractionMode={toggleInteractionMode}
                     onTogglePlanSidebar={togglePlanSidebar}
                     onRuntimeModeChange={handleRuntimeModeChange}
                   />
                 ) : (
                   <>
-                    {providerTraitsPicker ? (
-                      <>
-                        <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
-                        {providerTraitsPicker}
-                      </>
-                    ) : null}
                     <ComposerFooterModeControls
                       showInteractionModeToggle={composerProviderControls.showInteractionModeToggle}
                       interactionMode={interactionMode}
@@ -2744,6 +2859,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               >
                 <ComposerFooterPrimaryActions
                   compact={isComposerPrimaryActionsCompact}
+                  environmentId={environmentId}
+                  conversationId={activeThreadId}
+                  usageSettings={settings.usage}
                   activeContextWindow={activeContextWindow}
                   activeThreadProviderDisplayName={activeThreadProviderDisplayName}
                   pendingAction={pendingPrimaryAction}

@@ -487,7 +487,7 @@ const make = Effect.gen(function* () {
         });
       }
     }
-    const project = yield* resolveProject(thread.projectId);
+    const project = thread.projectId === null ? undefined : yield* resolveProject(thread.projectId);
     const effectiveCwd = resolveThreadWorkspaceCwd({
       thread,
       projects: project ? [project] : [],
@@ -797,7 +797,8 @@ const make = Effect.gen(function* () {
     const isFirstUserMessageTurn =
       thread.messages.filter((entry) => entry.role === "user").length === 1;
     if (isFirstUserMessageTurn) {
-      const project = yield* resolveProject(thread.projectId);
+      const project =
+        thread.projectId === null ? undefined : yield* resolveProject(thread.projectId);
       const generationCwd =
         resolveThreadWorkspaceCwd({
           thread,

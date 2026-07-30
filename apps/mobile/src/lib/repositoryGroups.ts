@@ -65,6 +65,7 @@ export function groupProjectsByRepository(input: {
   const threadsByProjectKey = new Map<string, EnvironmentThreadShell[]>();
 
   for (const thread of input.threads) {
+    if (thread.projectId === null) continue;
     const key = scopedProjectKey(thread.environmentId, thread.projectId);
     const existing = threadsByProjectKey.get(key);
     if (existing) {

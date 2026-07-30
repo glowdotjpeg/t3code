@@ -345,11 +345,13 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.create": {
-      yield* requireProject({
-        readModel,
-        command,
-        projectId: command.projectId,
-      });
+      if (command.projectId !== null) {
+        yield* requireProject({
+          readModel,
+          command,
+          projectId: command.projectId,
+        });
+      }
       yield* requireThreadAbsent({
         readModel,
         command,

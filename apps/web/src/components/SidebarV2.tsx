@@ -83,7 +83,7 @@ import {
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { useThreadActions } from "../hooks/useThreadActions";
-import { useHandleNewThread } from "../hooks/useHandleNewThread";
+import { useHandleNewThread, useProjectlessThreadHandler } from "../hooks/useHandleNewThread";
 import { openCommandPalette } from "../commandPaletteBus";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
@@ -1034,6 +1034,7 @@ export default function SidebarV2() {
   );
   const [projectScopeMenuOpen, setProjectScopeMenuOpen] = useState(false);
   const newThreadContext = useHandleNewThread();
+  const startProjectlessThread = useProjectlessThreadHandler();
   const openAddProjectCommandPalette = useCallback(
     () => openCommandPalette({ open: "add-project" }),
     [],
@@ -1670,14 +1671,15 @@ export default function SidebarV2() {
               (key) => !settledKeys.has(key) && !snoozedKeys.has(key) && !coParkingKeys?.has(key),
             ) ?? null);
       const nextThread = nextCardKey ? threadByKeyRef.current.get(nextCardKey) : null;
+      const shellProjectId = shell?.projectId ?? null;
       return nextThread
         ? () => navigateToThread(scopeThreadRef(nextThread.environmentId, nextThread.id))
-        : shell
+        : shell && shellProjectId
           ? () =>
-              void handleNewThreadRef.current(scopeProjectRef(shell.environmentId, shell.projectId))
-          : () => void router.navigate({ to: "/" });
+              void handleNewThreadRef.current(scopeProjectRef(shell.environmentId, shellProjectId))
+          : () => void startProjectlessThread();
     },
-    [navigateToThread, router],
+    [navigateToThread, startProjectlessThread],
   );
 
   const attemptSettle = useCallback(
@@ -2025,10 +2027,12 @@ export default function SidebarV2() {
         }
         switch (clicked.value) {
           case "new-thread-on-branch": {
+            if (thread.projectId === null) return;
+            const projectId = thread.projectId;
             // Explicit branch carry-over: reuse the thread's worktree when it
             // has one, otherwise its branch on the local checkout.
             const result = await settlePromise(() =>
-              handleNewThreadRef.current(scopeProjectRef(thread.environmentId, thread.projectId), {
+              handleNewThreadRef.current(scopeProjectRef(thread.environmentId, projectId), {
                 branch: thread.branch,
                 worktreePath: thread.worktreePath,
                 envMode: thread.worktreePath ? "worktree" : "local",
@@ -2183,6 +2187,11 @@ export default function SidebarV2() {
   // uses. The command palette already offers a "New thread in..." submenu
   // for multi-project setups.
   const handleNewThreadClick = useCallback(() => {
+    if (projectGroups.length === 0 || newThreadContext.activeThread?.projectId === null) {
+      if (isMobile) setOpenMobile(false);
+      void startProjectlessThread();
+      return;
+    }
     // One project: nothing to pick, create immediately.
     if (projectGroups.length <= 1) {
       if (isMobile) setOpenMobile(false);
@@ -2196,7 +2205,7 @@ export default function SidebarV2() {
     }
     if (isMobile) setOpenMobile(false);
     openCommandPalette({ open: "new-thread-in" });
-  }, [isMobile, newThreadContext, projectGroups.length, setOpenMobile]);
+  }, [isMobile, newThreadContext, projectGroups.length, setOpenMobile, startProjectlessThread]);
 
   const commandPaletteShortcutLabel = shortcutLabelForCommand(keybindings, "commandPalette.toggle");
   // Same resolution as v1: prefer the local-thread binding, fall back to
@@ -2240,7 +2249,6 @@ export default function SidebarV2() {
                       type="button"
                       className="relative size-8 justify-center rounded-md border-0 bg-transparent p-0 text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
                       onClick={handleNewThreadClick}
-                      disabled={projects.length === 0}
                       aria-label="New thread"
                     />
                   }
@@ -2417,12 +2425,17 @@ export default function SidebarV2() {
                       currentEnvironmentId={primaryEnvironmentId}
                       environmentLabel={environmentLabelById.get(thread.environmentId) ?? null}
                       projectCwd={
-                        projectCwdByKey.get(`${thread.environmentId}:${thread.projectId}`) ?? null
+                        thread.projectId === null
+                          ? null
+                          : (projectCwdByKey.get(`${thread.environmentId}:${thread.projectId}`) ??
+                            null)
                       }
                       projectTitle={
-                        projectDisplayNameByKey.get(
-                          `${thread.environmentId}:${thread.projectId}`,
-                        ) ?? null
+                        thread.projectId === null
+                          ? "No project"
+                          : (projectDisplayNameByKey.get(
+                              `${thread.environmentId}:${thread.projectId}`,
+                            ) ?? null)
                       }
                       providerEntryByInstanceId={providerEntryByInstanceId}
                       onThreadClick={handleThreadClick}
@@ -2528,15 +2541,25 @@ export default function SidebarV2() {
             <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-muted-foreground/60">
               {projects.length === 0 ? (
                 <>
-                  <span>No projects yet</span>
-                  <button
-                    type="button"
-                    onClick={openAddProjectCommandPalette}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-sidebar-border px-2.5 py-1 text-[11px] font-medium text-sidebar-muted-foreground transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
-                  >
-                    <PlusIcon className="size-3" />
-                    Add project
-                  </button>
+                  <span>No conversations yet</span>
+                  <div className="flex flex-wrap justify-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => void startProjectlessThread()}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-sidebar-border px-2.5 py-1 text-[11px] font-medium text-sidebar-muted-foreground transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+                    >
+                      <MessageSquareIcon className="size-3" />
+                      New conversation
+                    </button>
+                    <button
+                      type="button"
+                      onClick={openAddProjectCommandPalette}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-sidebar-border px-2.5 py-1 text-[11px] font-medium text-sidebar-muted-foreground transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+                    >
+                      <PlusIcon className="size-3" />
+                      Add project
+                    </button>
+                  </div>
                 </>
               ) : scopedProjectGroup ? (
                 `No threads in ${scopedProjectGroup.displayName} yet`

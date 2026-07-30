@@ -101,6 +101,7 @@ import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import * as ProcessDiagnostics from "./diagnostics/ProcessDiagnostics.ts";
 import * as ProcessResourceMonitor from "./diagnostics/ProcessResourceMonitor.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
+import * as UsageService from "./usage/UsageService.ts";
 import * as SourceControlDiscovery from "./sourceControl/SourceControlDiscovery.ts";
 import * as SourceControlRepositoryService from "./sourceControl/SourceControlRepositoryService.ts";
 import * as AzureDevOpsCli from "./sourceControl/AzureDevOpsCli.ts";
@@ -296,6 +297,8 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [WS_METHODS.serverProbe, AuthOrchestrationReadScope],
   [WS_METHODS.serverGetConfig, AuthOrchestrationReadScope],
   [WS_METHODS.serverRefreshProviders, AuthOrchestrationOperateScope],
+  [WS_METHODS.skillsSetEnabled, AuthOrchestrationOperateScope],
+  [WS_METHODS.skillsCreate, AuthOrchestrationOperateScope],
   [WS_METHODS.serverUpdateProvider, AuthOrchestrationOperateScope],
   [WS_METHODS.serverUpdateServer, AuthOrchestrationOperateScope],
   [WS_METHODS.serverUpsertKeybinding, AuthOrchestrationOperateScope],
@@ -307,6 +310,12 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [WS_METHODS.serverGetProcessDiagnostics, AuthOrchestrationReadScope],
   [WS_METHODS.serverGetProcessResourceHistory, AuthOrchestrationReadScope],
   [WS_METHODS.serverSignalProcess, AuthOrchestrationOperateScope],
+  [WS_METHODS.usageGetDashboard, AuthOrchestrationReadScope],
+  [WS_METHODS.usageExport, AuthOrchestrationReadScope],
+  [WS_METHODS.usageImport, AuthOrchestrationOperateScope],
+  [WS_METHODS.usageCalibrate, AuthOrchestrationOperateScope],
+  [WS_METHODS.usageClear, AuthOrchestrationOperateScope],
+  [WS_METHODS.usageSetProjectBudget, AuthOrchestrationOperateScope],
   [WS_METHODS.cloudGetRelayClientStatus, AuthRelayWriteScope],
   [WS_METHODS.cloudInstallRelayClient, AuthRelayWriteScope],
   [WS_METHODS.sourceControlLookupRepository, AuthOrchestrationReadScope],
@@ -447,6 +456,7 @@ const makeWsRpcLayer = (
       const sessions = yield* SessionStore.SessionStore;
       const processDiagnostics = yield* ProcessDiagnostics.ProcessDiagnostics;
       const processResourceMonitor = yield* ProcessResourceMonitor.ProcessResourceMonitor;
+      const usageService = yield* UsageService.UsageService;
       const relayClient = yield* RelayClient.RelayClient;
       const authorizationError = (requiredScope: AuthEnvironmentScope) =>
         new EnvironmentAuthorizationError({
@@ -1471,6 +1481,18 @@ const makeWsRpcLayer = (
             ).pipe(Effect.map((providers) => ({ providers }))),
             { "rpc.aggregate": "server" },
           ),
+        [WS_METHODS.skillsSetEnabled]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.skillsSetEnabled,
+            providerRegistry
+              .setSkillEnabled(input)
+              .pipe(Effect.map((providers) => ({ providers }))),
+            { "rpc.aggregate": "server" },
+          ),
+        [WS_METHODS.skillsCreate]: (input) =>
+          observeRpcEffect(WS_METHODS.skillsCreate, providerRegistry.createSkill(input), {
+            "rpc.aggregate": "server",
+          }),
         [WS_METHODS.serverUpdateProvider]: (input) =>
           observeRpcEffect(
             WS_METHODS.serverUpdateProvider,
@@ -1556,6 +1578,48 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.serverSignalProcess, processDiagnostics.signal(input), {
             "rpc.aggregate": "server",
           }),
+        [WS_METHODS.usageGetDashboard]: (input) =>
+          observeRpcEffect(WS_METHODS.usageGetDashboard, usageService.getDashboard(input), {
+            "rpc.aggregate": "usage",
+          }),
+        [WS_METHODS.usageExport]: (input) =>
+          observeRpcEffect(WS_METHODS.usageExport, usageService.exportHistory(input), {
+            "rpc.aggregate": "usage",
+          }),
+        [WS_METHODS.usageImport]: ({ content }) =>
+          observeRpcEffect(WS_METHODS.usageImport, usageService.importHistory(content), {
+            "rpc.aggregate": "usage",
+          }),
+        [WS_METHODS.usageCalibrate]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.usageCalibrate,
+            usageService.calibrate(input).pipe(Effect.as({ ok: true as const })),
+            { "rpc.aggregate": "usage" },
+          ),
+        [WS_METHODS.usageClear]: (_input) =>
+          observeRpcEffect(
+            WS_METHODS.usageClear,
+            usageService.clearHistory.pipe(Effect.as({ ok: true as const })),
+            { "rpc.aggregate": "usage" },
+          ),
+        [WS_METHODS.usageSetProjectBudget]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.usageSetProjectBudget,
+            Effect.gen(function* () {
+              const updatedAt = yield* nowIso;
+              yield* usageService.setProjectBudget(
+                input.projectId,
+                input.budget === null
+                  ? null
+                  : {
+                      ...input.budget,
+                      updatedAt,
+                    },
+              );
+              return { ok: true as const };
+            }),
+            { "rpc.aggregate": "usage" },
+          ),
         [WS_METHODS.cloudGetRelayClientStatus]: (_input) =>
           observeRpcEffect(WS_METHODS.cloudGetRelayClientStatus, relayClient.resolve, {
             "rpc.aggregate": "cloud",
@@ -1716,6 +1780,11 @@ const makeWsRpcLayer = (
                   ),
                 );
               if (Option.isNone(thread)) {
+                return yield* new AssetWorkspaceContextNotFoundError({
+                  resource: input.resource,
+                });
+              }
+              if (thread.value.projectId === null) {
                 return yield* new AssetWorkspaceContextNotFoundError({
                   resource: input.resource,
                 });

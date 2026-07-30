@@ -12,7 +12,12 @@
  *
  * @module provider/Drivers/ClaudeDriver
  */
-import { ClaudeSettings, ProviderDriverKind, type ServerProvider } from "@t3tools/contracts";
+import {
+  ClaudeSettings,
+  ProviderDriverKind,
+  ProviderSkillManagementError,
+  type ServerProvider,
+} from "@t3tools/contracts";
 import * as Cache from "effect/Cache";
 import * as Duration from "effect/Duration";
 import * as Crypto from "effect/Crypto";
@@ -35,6 +40,7 @@ import {
 } from "../Layers/ClaudeProvider.ts";
 import { ProviderEventLoggers } from "../Layers/ProviderEventLoggers.ts";
 import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
+import { createProviderSkillFile } from "../ProviderSkillFiles.ts";
 import {
   defaultProviderContinuationIdentity,
   type ProviderDriver,
@@ -54,6 +60,7 @@ import {
   type ProviderSnapshotSettings,
 } from "../providerUpdateSettings.ts";
 import { makeClaudeCapabilitiesCacheKey, makeClaudeContinuationGroupKey } from "./ClaudeHome.ts";
+import { resolveClaudeConfigDirPath } from "./ClaudeSkills.ts";
 const decodeClaudeSettings = Schema.decodeSync(ClaudeSettings);
 
 const DRIVER_KIND = ProviderDriverKind.make("claudeAgent");
@@ -105,6 +112,7 @@ const withInstanceIdentity =
     ...(input.displayName ? { displayName: input.displayName } : {}),
     ...(input.accentColor ? { accentColor: input.accentColor } : {}),
     continuation: { groupKey: input.continuationGroupKey },
+    skillManagement: { canCreate: true, canToggle: false },
   });
 
 export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
@@ -203,6 +211,38 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
         ),
       );
 
+      const skillManagement: NonNullable<ProviderInstance["skillManagement"]> = {
+        capabilities: { canCreate: true, canToggle: false },
+        create: (input) =>
+          Effect.gen(function* () {
+            const root =
+              input.scope === "project"
+                ? path.join(cwd, ".claude", "skills")
+                : path.join(
+                    yield* resolveClaudeConfigDirPath(effectiveConfig, processEnv, cwd).pipe(
+                      Effect.provideService(Path.Path, path),
+                    ),
+                    "skills",
+                  );
+            return yield* createProviderSkillFile({
+              fileSystem,
+              path,
+              root,
+              ...input,
+            });
+          }).pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProviderSkillManagementError({
+                  instanceId,
+                  operation: "create",
+                  reason: cause instanceof Error ? cause.message : "Unable to create the skill.",
+                  cause,
+                }),
+            ),
+          ),
+      };
+
       return {
         instanceId,
         driverKind: DRIVER_KIND,
@@ -216,6 +256,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
         snapshot,
         adapter,
         textGeneration,
+        skillManagement,
       } satisfies ProviderInstance;
     }),
 };

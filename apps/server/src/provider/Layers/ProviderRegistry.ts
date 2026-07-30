@@ -24,6 +24,7 @@
  */
 import {
   defaultInstanceIdForDriver,
+  ProviderSkillManagementError,
   ProviderDriverKind,
   type ProviderInstanceId,
   type ServerProvider,
@@ -704,12 +705,49 @@ export const ProviderRegistryLive = Layer.effect(
       return yield* Ref.get(providersRef);
     });
 
+    const setSkillEnabled: ProviderRegistryShape["setSkillEnabled"] = (input) =>
+      Effect.gen(function* () {
+        const instance = yield* instanceRegistry.getInstance(input.instanceId);
+        const setEnabled = instance?.skillManagement?.setEnabled;
+        if (!setEnabled) {
+          return yield* new ProviderSkillManagementError({
+            instanceId: input.instanceId,
+            operation: "setEnabled",
+            reason: "This provider does not support enabling or disabling skills.",
+          });
+        }
+        yield* setEnabled({ path: input.path, enabled: input.enabled });
+        return yield* refreshInstance(input.instanceId);
+      });
+
+    const createSkill: ProviderRegistryShape["createSkill"] = (input) =>
+      Effect.gen(function* () {
+        const instance = yield* instanceRegistry.getInstance(input.instanceId);
+        const create = instance?.skillManagement?.create;
+        if (!create) {
+          return yield* new ProviderSkillManagementError({
+            instanceId: input.instanceId,
+            operation: "create",
+            reason: "This provider does not support creating skills.",
+          });
+        }
+        const skillPath = yield* create({
+          name: input.name,
+          description: input.description,
+          scope: input.scope,
+        });
+        const providers = yield* refreshInstance(input.instanceId);
+        return { path: skillPath, providers };
+      });
+
     return {
       getProviders: Ref.get(providersRef),
       refresh: (provider?: ProviderDriverKind) =>
         refresh(provider).pipe(Effect.catchCause(recoverRefreshFailure)),
       refreshInstance: (instanceId: ProviderInstanceId) =>
         refreshInstance(instanceId).pipe(Effect.catchCause(recoverRefreshFailure)),
+      setSkillEnabled,
+      createSkill,
       getProviderMaintenanceCapabilitiesForInstance,
       setProviderMaintenanceActionState,
       get streamChanges() {

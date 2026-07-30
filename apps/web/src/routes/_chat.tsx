@@ -10,7 +10,7 @@ import { usePrimaryEnvironmentId } from "../state/environments";
 import { selectProjectGroupingSettings } from "../logicalProject";
 import { buildSidebarProjectSnapshots } from "../sidebarProjectGrouping";
 import { dispatchPreviewAction } from "../components/preview/previewActionBus";
-import { useHandleNewThread } from "../hooks/useHandleNewThread";
+import { useHandleNewThread, useProjectlessThreadHandler } from "../hooks/useHandleNewThread";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { isPreviewFocused } from "../lib/previewFocus";
 import { isTerminalFocused } from "../lib/terminalFocus";
@@ -27,6 +27,7 @@ function ChatRouteGlobalShortcuts() {
   const selectedThreadKeysSize = useThreadSelectionStore((state) => state.selectedThreadKeys.size);
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread, routeThreadRef } =
     useHandleNewThread();
+  const startProjectlessThread = useProjectlessThreadHandler();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const sidebarV2Enabled = useClientSettings((settings) => settings.sidebarV2Enabled);
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
@@ -80,6 +81,10 @@ function ChatRouteGlobalShortcuts() {
       if (command === "chat.newLocal") {
         event.preventDefault();
         event.stopPropagation();
+        if (activeThread?.projectId === null || projects.length === 0) {
+          void startProjectlessThread();
+          return;
+        }
         void startNewThreadFromContext({
           activeDraftThread,
           activeThread: activeThread ?? undefined,
@@ -92,6 +97,10 @@ function ChatRouteGlobalShortcuts() {
       if (command === "chat.new") {
         event.preventDefault();
         event.stopPropagation();
+        if (activeThread?.projectId === null || projects.length === 0) {
+          void startProjectlessThread();
+          return;
+        }
         // Sidebar v2 routes creation through the command palette whenever
         // there is a real choice to make; v1 (and single-project setups)
         // keep the immediate contextual create.
@@ -165,9 +174,11 @@ function ChatRouteGlobalShortcuts() {
     defaultProjectRef,
     previewOpen,
     projectGroupCount,
+    projects.length,
     routeThreadRef,
     selectedThreadKeysSize,
     sidebarV2Enabled,
+    startProjectlessThread,
     terminalOpen,
   ]);
 

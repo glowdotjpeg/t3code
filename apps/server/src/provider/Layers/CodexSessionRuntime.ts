@@ -133,6 +133,7 @@ export interface CodexThreadSnapshot {
 export interface CodexSessionRuntimeShape {
   readonly start: () => Effect.Effect<ProviderSession, CodexSessionRuntimeError>;
   readonly getSession: Effect.Effect<ProviderSession>;
+  readonly refreshAccountRateLimits: Effect.Effect<void, CodexSessionRuntimeError>;
   readonly sendTurn: (
     input: CodexSessionRuntimeSendTurnInput,
   ) => Effect.Effect<ProviderTurnStartResult, CodexSessionRuntimeError>;
@@ -1277,6 +1278,16 @@ export const makeCodexSessionRuntime = (
     return {
       start,
       getSession: Ref.get(sessionRef),
+      refreshAccountRateLimits: client.request("account/rateLimits/read", undefined).pipe(
+        Effect.flatMap((rateLimits) =>
+          emitEvent({
+            kind: "notification",
+            threadId: options.threadId,
+            method: "account/rateLimits/updated",
+            payload: rateLimits,
+          }),
+        ),
+      ),
       sendTurn: (input) =>
         Effect.gen(function* () {
           const providerThreadId = yield* readProviderThreadId;

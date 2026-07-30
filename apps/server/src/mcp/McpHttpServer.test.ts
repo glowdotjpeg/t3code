@@ -158,6 +158,7 @@ it.effect("registers annotated tools and preserves authenticated request context
       const routedRequests: Array<{
         readonly operation: string;
         readonly tabId?: string | undefined;
+        readonly input: unknown;
       }> = [];
       const events = yield* broker.connect({
         clientId: "mcp-test-client",
@@ -233,6 +234,18 @@ it.effect("registers annotated tools and preserves authenticated request context
       expect(status.structuredContent).toMatchObject({
         available: true,
         tabId,
+      });
+
+      const opened = yield* server
+        .callTool({ name: "preview_open", arguments: {} })
+        .pipe(
+          Effect.provideService(McpInvocationContext.McpInvocationContext, invocation),
+          Effect.provideService(McpSchema.McpServerClient, client),
+        );
+      expect(opened.isError).toBe(false);
+      expect(routedRequests.find(({ operation }) => operation === "open")?.input).toMatchObject({
+        show: false,
+        reuseExistingTab: true,
       });
 
       const malformed = yield* server

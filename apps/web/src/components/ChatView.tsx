@@ -159,7 +159,11 @@ import {
   projectScriptIdFromCommand,
 } from "~/projectScripts";
 import { newDraftId, newMessageId, newThreadId } from "~/lib/utils";
-import { getProviderModelCapabilities, resolveSelectableProvider } from "../providerModels";
+import {
+  formatProviderDriverKindLabel,
+  getProviderModelCapabilities,
+  resolveSelectableProvider,
+} from "../providerModels";
 import { NO_PROVIDER_MODEL_SELECTION } from "../providerInstances";
 import {
   INIT_PROJECT_PROMPT,
@@ -622,7 +626,7 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
   const closeTerminalMutation = useAtomCommand(terminalEnvironment.close, "terminal close");
   const serverThread = useThread(threadRef);
   const draftThread = useComposerDraftStore((store) => store.getDraftThreadByRef(threadRef));
-  const projectRef = serverThread
+  const projectRef = serverThread?.projectId
     ? scopeProjectRef(serverThread.environmentId, serverThread.projectId)
     : draftThread
       ? scopeProjectRef(draftThread.environmentId, draftThread.projectId)
@@ -978,7 +982,7 @@ const PersistentThreadTerminalPanel = memo(function PersistentThreadTerminalPane
 }: PersistentThreadTerminalPanelProps) {
   const serverThread = useThread(threadRef);
   const draftThread = useComposerDraftStore((store) => store.getDraftThreadByRef(threadRef));
-  const projectRef = serverThread
+  const projectRef = serverThread?.projectId
     ? scopeProjectRef(serverThread.environmentId, serverThread.projectId)
     : draftThread
       ? scopeProjectRef(draftThread.environmentId, draftThread.projectId)
@@ -1564,7 +1568,7 @@ function ChatViewContent(props: ChatViewProps) {
     });
   }, [activeThreadKey, existingOpenTerminalThreadKeys, terminalUiState.terminalOpen]);
   const latestTurnSettled = isLatestTurnSettled(activeLatestTurn, activeThread?.session ?? null);
-  const activeProjectRef = activeThread
+  const activeProjectRef = activeThread?.projectId
     ? scopeProjectRef(activeThread.environmentId, activeThread.projectId)
     : null;
   const activeProject = useProject(activeProjectRef);
@@ -2365,6 +2369,9 @@ function ChatViewContent(props: ChatViewProps) {
     const defaultInstanceId = defaultInstanceIdForDriver(selectedProvider);
     return providerStatuses.find((status) => status.instanceId === defaultInstanceId) ?? null;
   }, [activeProviderInstanceId, providerStatuses, selectedProvider]);
+  const browserAgentLabel =
+    activeProviderStatus?.displayName?.trim() ||
+    formatProviderDriverKindLabel(activeProviderStatus?.driver ?? selectedProvider);
   const providerStatusBannerKey = getProviderStatusBannerKey(activeProviderStatus);
   const [dismissedProviderStatusBannerKey, setDismissedProviderStatusBannerKey] = useState<
     string | null
@@ -3025,12 +3032,8 @@ function ChatViewContent(props: ChatViewProps) {
     },
     [activeProject, activeThreadRef],
   );
-  const togglePreviewPanel = useCallback(() => {
-    if (!activeThreadRef || !isPreviewSupportedInRuntime()) return;
-    if (previewPanelOpen) {
-      useRightPanelStore.getState().close(activeThreadRef);
-      return;
-    }
+  const openPreviewPanel = useCallback(() => {
+    if (!activeThreadRef || !isPreviewSupportedInRuntime() || previewPanelOpen) return;
     const activeTabId = activePreviewState.activeTabId;
     if (activeTabId) {
       useRightPanelStore.getState().openBrowser(activeThreadRef, activeTabId);
@@ -3038,6 +3041,14 @@ function ChatViewContent(props: ChatViewProps) {
       createBrowserSurface();
     }
   }, [activePreviewState.activeTabId, activeThreadRef, createBrowserSurface, previewPanelOpen]);
+  const togglePreviewPanel = useCallback(() => {
+    if (!activeThreadRef || !isPreviewSupportedInRuntime()) return;
+    if (previewPanelOpen) {
+      useRightPanelStore.getState().close(activeThreadRef);
+      return;
+    }
+    openPreviewPanel();
+  }, [activeThreadRef, openPreviewPanel, previewPanelOpen]);
   const closePreviewPanel = useCallback(() => {
     if (activeThreadRef) {
       setMaximizedRightPanelThreadKey(null);
@@ -4730,7 +4741,7 @@ function ChatViewContent(props: ChatViewProps) {
       }
       return;
     }
-    if (!activeProject) {
+    if (!activeProject && !isServerThread) {
       toastManager.add(
         stackedThreadToast({
           type: "warning",
@@ -4884,7 +4895,7 @@ function ChatViewContent(props: ChatViewProps) {
     const title = truncate(titleSeed);
     const threadCreateModelSelection = createModelSelection(
       ctxSelectedModelSelection.instanceId,
-      ctxSelectedModel || activeProject.defaultModelSelection?.model || DEFAULT_MODEL,
+      ctxSelectedModel || activeProject?.defaultModelSelection?.model || DEFAULT_MODEL,
       ctxSelectedModelSelection.options,
     );
 
@@ -4927,7 +4938,7 @@ function ChatViewContent(props: ChatViewProps) {
     let turnStartSucceeded = false;
     if (failure === null && turnAttachmentsResult._tag === "Success") {
       const bootstrap =
-        isLocalDraftThread || baseBranchForWorktree
+        activeProject && (isLocalDraftThread || baseBranchForWorktree)
           ? {
               ...(isLocalDraftThread
                 ? {
@@ -5902,6 +5913,8 @@ function ChatViewContent(props: ChatViewProps) {
                 onRevertUserMessage={onRevertUserMessage}
                 isRevertingCheckpoint={isRevertingCheckpoint}
                 onImageExpand={onExpandTimelineImage}
+                browserAgentLabel={browserAgentLabel}
+                onOpenBrowser={openPreviewPanel}
                 markdownCwd={gitCwd ?? undefined}
                 resolvedTheme={resolvedTheme}
                 timestampFormat={timestampFormat}

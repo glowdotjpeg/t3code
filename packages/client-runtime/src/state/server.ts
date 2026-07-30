@@ -298,6 +298,10 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:process-resource-history",
       tag: WS_METHODS.serverGetProcessResourceHistory,
     }),
+    usageDashboard: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:usage:dashboard",
+      tag: WS_METHODS.usageGetDashboard,
+    }),
     configProjection,
     welcome: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:server:welcome",
@@ -313,6 +317,22 @@ export function createServerEnvironmentAtoms<R, E>(
       concurrency: {
         mode: "singleFlight",
         key: ({ environmentId }) => environmentId,
+      },
+    }),
+    setSkillEnabled: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:skills:set-enabled",
+      tag: WS_METHODS.skillsSetEnabled,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId, input }) => `${environmentId}:${input.instanceId}:${input.path}`,
+      },
+    }),
+    createSkill: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:skills:create",
+      tag: WS_METHODS.skillsCreate,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId, input }) => `${environmentId}:${input.instanceId}`,
       },
     }),
     updateProvider: createEnvironmentRpcCommand(runtime, {
@@ -348,6 +368,26 @@ export function createServerEnvironmentAtoms<R, E>(
     signalProcess: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:signal-process",
       tag: WS_METHODS.serverSignalProcess,
+    }),
+    exportUsage: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:usage:export",
+      tag: WS_METHODS.usageExport,
+    }),
+    importUsage: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:usage:import",
+      tag: WS_METHODS.usageImport,
+    }),
+    calibrateUsage: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:usage:calibrate",
+      tag: WS_METHODS.usageCalibrate,
+    }),
+    clearUsage: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:usage:clear",
+      tag: WS_METHODS.usageClear,
+    }),
+    setUsageProjectBudget: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:usage:set-project-budget",
+      tag: WS_METHODS.usageSetProjectBudget,
     }),
   };
 }

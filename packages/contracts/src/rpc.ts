@@ -114,6 +114,10 @@ import {
   PreviewAutomationStreamEvent,
 } from "./previewAutomation.ts";
 import {
+  ProviderSkillCreateInput,
+  ProviderSkillCreateResult,
+  ProviderSkillManagementError,
+  ProviderSkillSetEnabledInput,
   ServerConfigStreamEvent,
   ServerConfig,
   ServerProviderUpdateError,
@@ -135,6 +139,19 @@ import {
   ServerUpsertKeybindingResult,
 } from "./server.ts";
 import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings.ts";
+import {
+  UsageCalibrateInput,
+  UsageClearInput,
+  UsageDashboard,
+  UsageError,
+  UsageExportInput,
+  UsageExportResult,
+  UsageGetDashboardInput,
+  UsageImportInput,
+  UsageImportResult,
+  UsageMutationResult,
+  UsageSetProjectBudgetInput,
+} from "./usage.ts";
 import {
   SourceControlCloneRepositoryInput,
   SourceControlCloneRepositoryResult,
@@ -219,6 +236,18 @@ export const WS_METHODS = {
   serverGetProcessResourceHistory: "server.getProcessResourceHistory",
   serverSignalProcess: "server.signalProcess",
 
+  // Provider skills
+  skillsSetEnabled: "skills.setEnabled",
+  skillsCreate: "skills.create",
+
+  // Local AI usage
+  usageGetDashboard: "usage.getDashboard",
+  usageExport: "usage.export",
+  usageImport: "usage.import",
+  usageCalibrate: "usage.calibrate",
+  usageClear: "usage.clear",
+  usageSetProjectBudget: "usage.setProjectBudget",
+
   // Cloud environment methods
   cloudGetRelayClientStatus: "cloud.getRelayClientStatus",
   cloudInstallRelayClient: "cloud.installRelayClient",
@@ -277,6 +306,18 @@ export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProv
   error: EnvironmentAuthorizationError,
 });
 
+export const WsSkillsSetEnabledRpc = Rpc.make(WS_METHODS.skillsSetEnabled, {
+  payload: ProviderSkillSetEnabledInput,
+  success: ServerProviderUpdatedPayload,
+  error: Schema.Union([ProviderSkillManagementError, EnvironmentAuthorizationError]),
+});
+
+export const WsSkillsCreateRpc = Rpc.make(WS_METHODS.skillsCreate, {
+  payload: ProviderSkillCreateInput,
+  success: ProviderSkillCreateResult,
+  error: Schema.Union([ProviderSkillManagementError, EnvironmentAuthorizationError]),
+});
+
 export const WsServerUpdateProviderRpc = Rpc.make(WS_METHODS.serverUpdateProvider, {
   payload: ServerProviderUpdateInput,
   success: ServerProviderUpdatedPayload,
@@ -332,6 +373,42 @@ export const WsServerSignalProcessRpc = Rpc.make(WS_METHODS.serverSignalProcess,
   payload: ServerSignalProcessInput,
   success: ServerSignalProcessResult,
   error: EnvironmentAuthorizationError,
+});
+
+export const WsUsageGetDashboardRpc = Rpc.make(WS_METHODS.usageGetDashboard, {
+  payload: UsageGetDashboardInput,
+  success: UsageDashboard,
+  error: Schema.Union([UsageError, EnvironmentAuthorizationError]),
+});
+
+export const WsUsageExportRpc = Rpc.make(WS_METHODS.usageExport, {
+  payload: UsageExportInput,
+  success: UsageExportResult,
+  error: Schema.Union([UsageError, EnvironmentAuthorizationError]),
+});
+
+export const WsUsageImportRpc = Rpc.make(WS_METHODS.usageImport, {
+  payload: UsageImportInput,
+  success: UsageImportResult,
+  error: Schema.Union([UsageError, EnvironmentAuthorizationError]),
+});
+
+export const WsUsageCalibrateRpc = Rpc.make(WS_METHODS.usageCalibrate, {
+  payload: UsageCalibrateInput,
+  success: UsageMutationResult,
+  error: Schema.Union([UsageError, EnvironmentAuthorizationError]),
+});
+
+export const WsUsageClearRpc = Rpc.make(WS_METHODS.usageClear, {
+  payload: UsageClearInput,
+  success: UsageMutationResult,
+  error: Schema.Union([UsageError, EnvironmentAuthorizationError]),
+});
+
+export const WsUsageSetProjectBudgetRpc = Rpc.make(WS_METHODS.usageSetProjectBudget, {
+  payload: UsageSetProjectBudgetInput,
+  success: UsageMutationResult,
+  error: Schema.Union([UsageError, EnvironmentAuthorizationError]),
 });
 
 export const WsCloudGetRelayClientStatusRpc = Rpc.make(WS_METHODS.cloudGetRelayClientStatus, {
@@ -702,6 +779,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerProbeRpc,
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
+  WsSkillsSetEnabledRpc,
+  WsSkillsCreateRpc,
   WsServerUpdateProviderRpc,
   WsServerUpdateServerRpc,
   WsServerUpsertKeybindingRpc,
@@ -713,6 +792,12 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetProcessDiagnosticsRpc,
   WsServerGetProcessResourceHistoryRpc,
   WsServerSignalProcessRpc,
+  WsUsageGetDashboardRpc,
+  WsUsageExportRpc,
+  WsUsageImportRpc,
+  WsUsageCalibrateRpc,
+  WsUsageClearRpc,
+  WsUsageSetProjectBudgetRpc,
   WsCloudGetRelayClientStatusRpc,
   WsCloudInstallRelayClientRpc,
   WsSourceControlLookupRepositoryRpc,

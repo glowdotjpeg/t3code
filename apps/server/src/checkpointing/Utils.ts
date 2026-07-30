@@ -11,7 +11,7 @@ export function checkpointRefForThreadTurn(threadId: ThreadId, turnCount: number
 
 export function resolveThreadWorkspaceCwd(input: {
   readonly thread: {
-    readonly projectId: ProjectId;
+    readonly projectId: ProjectId | null;
     readonly worktreePath: string | null;
   };
   readonly projects: ReadonlyArray<{

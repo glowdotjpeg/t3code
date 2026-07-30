@@ -11,6 +11,7 @@ import {
   type CanonicalItemType,
   type CanonicalRequestType,
   type CodexSettings,
+  EventId,
   ProviderDriverKind,
   type ProviderEvent,
   ProviderInstanceId,
@@ -26,6 +27,7 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Crypto from "effect/Crypto";
+import * as DateTime from "effect/DateTime";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
@@ -1374,6 +1376,26 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
   const runtimeEventQueue = yield* Queue.unbounded<ProviderRuntimeEvent>();
   const sessions = new Map<ThreadId, CodexAdapterSessionContext>();
 
+  const publishAccountRateLimits: CodexAdapterShape["publishAccountRateLimits"] = (rateLimits) =>
+    Effect.gen(function* () {
+      const eventId = EventId.make(yield* crypto.randomUUIDv4.pipe(Effect.orDie));
+      const createdAt = DateTime.formatIso(yield* DateTime.now);
+      yield* Queue.offer(runtimeEventQueue, {
+        eventId,
+        provider: PROVIDER,
+        providerInstanceId: boundInstanceId,
+        threadId: ThreadId.make(`account:${boundInstanceId}`),
+        createdAt,
+        type: "account.rate-limits.updated",
+        payload: { rateLimits },
+        raw: {
+          source: "codex.app-server.notification",
+          method: "account/rateLimits/read",
+          payload: rateLimits,
+        },
+      });
+    });
+
   const startSession: CodexAdapterShape["startSession"] = (input) =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -1480,6 +1502,17 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
               Effect.andThen(Fiber.interrupt(eventFiber)),
               Effect.ignore,
             ),
+          ),
+        );
+
+        yield* runtime.refreshAccountRateLimits.pipe(
+          Effect.catch((cause) =>
+            Effect.logWarning("Failed to refresh Codex account rate limits.", {
+              provider: PROVIDER,
+              providerInstanceId: boundInstanceId,
+              threadId: input.threadId,
+              cause,
+            }),
           ),
         );
 
@@ -1704,6 +1737,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     capabilities: {
       sessionModelSwitch: "in-session",
     },
+    publishAccountRateLimits,
     startSession,
     sendTurn,
     interruptTurn,

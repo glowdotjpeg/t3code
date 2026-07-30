@@ -16,6 +16,33 @@ export const TIMELINE_MINIMAP_MAX_HEIGHT_CSS = "calc(100vh - 18rem)";
 export const TIMELINE_CONTENT_MAX_WIDTH = 768;
 export const TIMELINE_MINIMAP_PERSISTENT_GUTTER = 48;
 
+function asRecord(value: unknown): Readonly<Record<string, unknown>> | null {
+  return typeof value === "object" && value !== null
+    ? (value as Readonly<Record<string, unknown>>)
+    : null;
+}
+
+export function isPreviewAutomationWorkEntry(
+  entry: Pick<WorkLogEntry, "itemType" | "label" | "toolData" | "toolTitle">,
+): boolean {
+  if (entry.itemType !== "mcp_tool_call") {
+    return false;
+  }
+
+  const toolData = asRecord(entry.toolData);
+  if (
+    toolData?.server === "t3-code" &&
+    typeof toolData.tool === "string" &&
+    toolData.tool.startsWith("preview_")
+  ) {
+    return true;
+  }
+
+  return [entry.toolTitle, entry.label].some(
+    (value) => typeof value === "string" && /(?:^|[\s·])preview_[a-z_]+(?:$|[\s·])/i.test(value),
+  );
+}
+
 export interface TimelineEndState {
   readonly isAtEnd?: boolean;
   readonly isNearEnd?: boolean;
@@ -476,7 +503,8 @@ export function deriveMessagesTimelineRows(input: {
         cursor += 1;
       }
       const visibleGroupedEntries = groupedEntries.filter(
-        (entry) => !workEntryIndicatesToolNeutralStatus(entry),
+        (entry) =>
+          isPreviewAutomationWorkEntry(entry) || !workEntryIndicatesToolNeutralStatus(entry),
       );
       if (visibleGroupedEntries.length > 0) {
         if (visibleGroupedEntries.length <= MAX_VISIBLE_WORK_LOG_ENTRIES) {

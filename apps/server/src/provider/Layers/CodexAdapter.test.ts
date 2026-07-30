@@ -87,6 +87,10 @@ class FakeCodexRuntime implements CodexSessionRuntimeShape {
     (_turnId?: TurnId): Promise<void> => Promise.resolve(undefined),
   );
 
+  public readonly refreshAccountRateLimitsImpl = vi.fn(
+    (): Promise<void> => Promise.resolve(undefined),
+  );
+
   public readonly readThreadImpl = vi.fn(
     (): Promise<CodexThreadSnapshot> =>
       Promise.resolve({
@@ -116,9 +120,11 @@ class FakeCodexRuntime implements CodexSessionRuntimeShape {
   public readonly closeImpl = vi.fn(() => Promise.resolve(undefined));
 
   readonly options: CodexSessionRuntimeOptions;
+  private readonly failRateLimitRefresh: boolean;
 
-  constructor(options: CodexSessionRuntimeOptions) {
+  constructor(options: CodexSessionRuntimeOptions, failRateLimitRefresh = false) {
     this.options = options;
+    this.failRateLimitRefresh = failRateLimitRefresh;
   }
 
   start() {
@@ -126,6 +132,19 @@ class FakeCodexRuntime implements CodexSessionRuntimeShape {
   }
 
   getSession = Effect.promise(() => this.startImpl());
+
+  get refreshAccountRateLimits() {
+    return Effect.suspend(() => {
+      const refresh = this.refreshAccountRateLimitsImpl();
+      return this.failRateLimitRefresh
+        ? Effect.fail(
+            new CodexErrors.CodexAppServerProcessExitedError({
+              cause: new Error("rate limits unavailable"),
+            }),
+          )
+        : Effect.promise(() => refresh);
+    });
+  }
 
   sendTurn(input: CodexSessionRuntimeSendTurnInput) {
     return Effect.promise(() => this.sendTurnImpl(input));
@@ -160,10 +179,10 @@ class FakeCodexRuntime implements CodexSessionRuntimeShape {
   }
 }
 
-function makeRuntimeFactory() {
+function makeRuntimeFactory(config?: { readonly failRateLimitRefresh?: boolean }) {
   const runtimes: Array<FakeCodexRuntime> = [];
-  const factory = vi.fn((options: CodexSessionRuntimeOptions) => {
-    const runtime = new FakeCodexRuntime(options);
+  const factory = vi.fn((runtimeOptions: CodexSessionRuntimeOptions) => {
+    const runtime = new FakeCodexRuntime(runtimeOptions, config?.failRateLimitRefresh);
     runtimes.push(runtime);
     return Effect.succeed(runtime);
   });
@@ -309,6 +328,68 @@ const sessionErrorLayer = it.layer(
 );
 
 sessionErrorLayer("CodexAdapterLive session errors", (it) => {
+  it.effect("publishes account quota snapshots without starting a session", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const eventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+      const rateLimits = {
+        rateLimits: {
+          secondary: {
+            usedPercent: 74,
+            windowDurationMins: 10_080,
+            resetsAt: 1_785_258_175,
+          },
+        },
+        rateLimitsByLimitId: {},
+      };
+
+      yield* adapter.publishAccountRateLimits(rateLimits);
+      const event = Option.getOrThrow(yield* Fiber.join(eventFiber));
+
+      NodeAssert.equal(event.type, "account.rate-limits.updated");
+      NodeAssert.equal(event.provider, "codex");
+      NodeAssert.equal(event.providerInstanceId, "codex");
+      NodeAssert.deepStrictEqual(event.payload, { rateLimits });
+    }),
+  );
+
+  it.effect("refreshes Codex account rate limits after session startup", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      yield* adapter.startSession({
+        provider: ProviderDriverKind.make("codex"),
+        threadId: asThreadId("sess-rate-limits"),
+        runtimeMode: "full-access",
+      });
+
+      const runtime = sessionRuntimeFactory.lastRuntime;
+      NodeAssert.ok(runtime);
+      NodeAssert.equal(runtime.refreshAccountRateLimitsImpl.mock.calls.length, 1);
+    }),
+  );
+
+  it.effect("keeps the session usable when the account rate-limit refresh fails", () =>
+    Effect.gen(function* () {
+      const runtimeFactory = makeRuntimeFactory({ failRateLimitRefresh: true });
+      const codexConfig = decodeCodexSettings({});
+      const adapter = yield* makeCodexAdapter(codexConfig, {
+        makeRuntime: runtimeFactory.factory,
+      });
+
+      yield* adapter.startSession({
+        provider: ProviderDriverKind.make("codex"),
+        threadId: asThreadId("sess-rate-limits-failure"),
+        runtimeMode: "full-access",
+      });
+
+      NodeAssert.equal(yield* adapter.hasSession(asThreadId("sess-rate-limits-failure")), true);
+      NodeAssert.equal(
+        runtimeFactory.lastRuntime?.refreshAccountRateLimitsImpl.mock.calls.length,
+        1,
+      );
+    }).pipe(Effect.scoped),
+  );
+
   it.effect("maps missing adapter sessions to ProviderAdapterSessionNotFoundError", () =>
     Effect.gen(function* () {
       const adapter = yield* CodexAdapter;

@@ -4,7 +4,15 @@ import {
   scopeProjectRef,
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
-import { DEFAULT_RUNTIME_MODE, type ScopedProjectRef } from "@t3tools/contracts";
+import {
+  isAtomCommandInterrupted,
+  squashAtomCommandFailure,
+} from "@t3tools/client-runtime/state/runtime";
+import {
+  DEFAULT_PROVIDER_INTERACTION_MODE,
+  DEFAULT_RUNTIME_MODE,
+  type ScopedProjectRef,
+} from "@t3tools/contracts";
 import { useParams, useRouter } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 import {
@@ -23,9 +31,80 @@ import {
 import { readThreadShell, useProjects, useThread } from "../state/entities";
 import { resolveNewDraftStartFromOrigin } from "../lib/chatThreadActions";
 import { primaryServerSettingsAtom } from "../state/server";
-import { resolveThreadRouteTarget } from "../threadRoutes";
+import { primaryServerProvidersAtom } from "../state/server";
+import { usePrimaryEnvironmentId } from "../state/environments";
+import { threadEnvironment } from "../state/threads";
+import { useAtomCommand } from "../state/use-atom-command";
+import { buildThreadRouteParams, resolveThreadRouteTarget } from "../threadRoutes";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
 import { useClientSettings } from "./useSettings";
+import { resolveDefaultProviderModelSelection } from "../providerInstances";
+import { stackedThreadToast, toastManager } from "../components/ui/toast";
+
+export function useProjectlessThreadHandler() {
+  const router = useRouter();
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const providers = useAtomValue(primaryServerProvidersAtom);
+  const createThread = useAtomCommand(threadEnvironment.create, { reportFailure: false });
+
+  return useCallback(
+    async (options?: { readonly replace?: boolean }): Promise<boolean> => {
+      if (primaryEnvironmentId === null) {
+        toastManager.add({
+          type: "warning",
+          title: "No environment is available",
+        });
+        return false;
+      }
+
+      const modelSelection = resolveDefaultProviderModelSelection(providers, null);
+      if (modelSelection === null) {
+        toastManager.add({
+          type: "warning",
+          title: "No provider is available",
+          description: "Connect a provider before starting a conversation.",
+        });
+        return false;
+      }
+
+      const threadId = newThreadId();
+      const result = await createThread({
+        environmentId: primaryEnvironmentId,
+        input: {
+          threadId,
+          projectId: null,
+          title: "New conversation",
+          modelSelection,
+          runtimeMode: DEFAULT_RUNTIME_MODE,
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          branch: null,
+          worktreePath: null,
+        },
+      });
+      if (result._tag === "Failure") {
+        if (!isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Failed to start conversation",
+              description: error instanceof Error ? error.message : "An error occurred.",
+            }),
+          );
+        }
+        return false;
+      }
+
+      await router.navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(scopeThreadRef(primaryEnvironmentId, threadId)),
+        replace: options?.replace ?? false,
+      });
+      return true;
+    },
+    [createThread, primaryEnvironmentId, providers, router],
+  );
+}
 
 export function useNewThreadHandler() {
   const projects = useProjects();

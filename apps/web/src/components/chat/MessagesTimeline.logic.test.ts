@@ -3,9 +3,42 @@ import {
   computeStableMessagesTimelineRows,
   computeMessageDurationStart,
   deriveMessagesTimelineRows,
+  isPreviewAutomationWorkEntry,
   normalizeCompactToolLabel,
   resolveAssistantMessageCopyState,
 } from "./MessagesTimeline.logic";
+
+describe("isPreviewAutomationWorkEntry", () => {
+  it("recognizes T3 preview MCP tools from structured tool data", () => {
+    expect(
+      isPreviewAutomationWorkEntry({
+        itemType: "mcp_tool_call",
+        label: "Inspect browser page",
+        toolTitle: "Inspect browser page",
+        toolData: { server: "t3-code", tool: "preview_snapshot" },
+      }),
+    ).toBe(true);
+  });
+
+  it("falls back to preview tool names in lifecycle labels", () => {
+    expect(
+      isPreviewAutomationWorkEntry({
+        itemType: "mcp_tool_call",
+        label: "t3-code · preview_click",
+      }),
+    ).toBe(true);
+  });
+
+  it("leaves unrelated MCP tools unchanged", () => {
+    expect(
+      isPreviewAutomationWorkEntry({
+        itemType: "mcp_tool_call",
+        label: "GitHub · search_code",
+        toolData: { server: "github", tool: "search_code" },
+      }),
+    ).toBe(false);
+  });
+});
 
 describe("computeMessageDurationStart", () => {
   it("returns message createdAt when there is no preceding user message", () => {

@@ -11,9 +11,18 @@
  */
 import type { ProviderAdapterError } from "../Errors.ts";
 import type { ProviderAdapterShape } from "./ProviderAdapter.ts";
+import type * as CodexSchema from "effect-codex-app-server/schema";
 
 /**
  * CodexAdapterShape — per-instance Codex adapter contract. Carries
  * a branded driver kind as the nominal discriminant.
  */
-export interface CodexAdapterShape extends ProviderAdapterShape<ProviderAdapterError> {}
+export interface CodexAdapterShape extends ProviderAdapterShape<ProviderAdapterError> {
+  /**
+   * Publishes an account-level quota snapshot discovered outside a thread
+   * session (for example, during the provider health probe).
+   */
+  readonly publishAccountRateLimits: (
+    rateLimits: CodexSchema.V2GetAccountRateLimitsResponse,
+  ) => import("effect/Effect").Effect<void>;
+}

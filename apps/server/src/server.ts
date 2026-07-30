@@ -84,6 +84,9 @@ import * as ServerSelfUpdate from "./cloud/selfUpdate.ts";
 import * as ProcessDiagnostics from "./diagnostics/ProcessDiagnostics.ts";
 import * as ProcessResourceMonitor from "./diagnostics/ProcessResourceMonitor.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
+import * as UsageCollection from "./usage/UsageCollection.ts";
+import * as UsageRepository from "./usage/UsageRepository.ts";
+import * as UsageService from "./usage/UsageService.ts";
 import { OrchestrationLayerLive } from "./orchestration/runtimeLayer.ts";
 import {
   clearPersistedServerRuntimeState,
@@ -287,7 +290,21 @@ const ProviderRuntimeLayerLive = ProviderSessionReaperLive.pipe(
   Layer.provideMerge(OrchestrationLayerLive),
 );
 
-const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
+const ServerSettingsLayerLive = ServerSettings.layer.pipe(Layer.provide(ServerSecretStore.layer));
+
+const UsageRepositoryLayerLive = UsageRepository.layer;
+
+const UsageLayerLive = Layer.mergeAll(
+  UsageRepositoryLayerLive,
+  UsageService.layer.pipe(
+    Layer.provide(UsageRepositoryLayerLive),
+    Layer.provide(ServerSettingsLayerLive),
+  ),
+);
+
+const SettingsAndUsageLayerLive = Layer.mergeAll(ServerSettingsLayerLive, UsageLayerLive);
+
+const RuntimeCoreBaseDependenciesLive = ReactorLayerLive.pipe(
   // Core Services
   Layer.provideMerge(CheckpointingLayerLive),
   Layer.provideMerge(SourceControlProviderRegistryLayerLive),
@@ -316,7 +333,7 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   // no longer transitively provides it. Exposing it at the runtime level
   // keeps a single Live for all opencode consumers.
   Layer.provideMerge(OpenCodeRuntime.OpenCodeRuntimeLive),
-  Layer.provideMerge(ServerSettings.layer.pipe(Layer.provide(ServerSecretStore.layer))),
+  Layer.provideMerge(SettingsAndUsageLayerLive),
   Layer.provideMerge(WorkspaceLayerLive),
   Layer.provideMerge(ProjectFaviconResolverLayerLive),
   Layer.provideMerge(RepositoryIdentityResolver.layer),
@@ -332,6 +349,10 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
       CloudManagedEndpointRuntimeLive,
     ),
   ),
+);
+
+const RuntimeCoreDependenciesLive = UsageCollection.layer.pipe(
+  Layer.provideMerge(RuntimeCoreBaseDependenciesLive),
 );
 
 const RuntimeDependenciesLive = RuntimeCoreDependenciesLive.pipe(

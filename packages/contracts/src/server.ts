@@ -92,6 +92,12 @@ export const ServerProviderSkill = Schema.Struct({
 });
 export type ServerProviderSkill = typeof ServerProviderSkill.Type;
 
+export const ProviderSkillManagementCapabilities = Schema.Struct({
+  canCreate: Schema.Boolean,
+  canToggle: Schema.Boolean,
+});
+export type ProviderSkillManagementCapabilities = typeof ProviderSkillManagementCapabilities.Type;
+
 /**
  * Availability of a configured provider instance from the runtime's POV.
  *
@@ -188,6 +194,7 @@ export const ServerProvider = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
   skills: Schema.Array(ServerProviderSkill).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  skillManagement: Schema.optionalKey(ProviderSkillManagementCapabilities),
   versionAdvisory: Schema.optionalKey(ServerProviderVersionAdvisory),
   updateState: Schema.optionalKey(ServerProviderUpdateState),
 });
@@ -555,6 +562,44 @@ export const ServerProviderUpdatedPayload = Schema.Struct({
   providers: ServerProviders,
 });
 export type ServerProviderUpdatedPayload = typeof ServerProviderUpdatedPayload.Type;
+
+export const ProviderSkillCreateScope = Schema.Literals(["personal", "project"]);
+export type ProviderSkillCreateScope = typeof ProviderSkillCreateScope.Type;
+
+export const ProviderSkillSetEnabledInput = Schema.Struct({
+  instanceId: ProviderInstanceId,
+  path: TrimmedNonEmptyString,
+  enabled: Schema.Boolean,
+});
+export type ProviderSkillSetEnabledInput = typeof ProviderSkillSetEnabledInput.Type;
+
+export const ProviderSkillCreateInput = Schema.Struct({
+  instanceId: ProviderInstanceId,
+  name: TrimmedNonEmptyString,
+  description: TrimmedNonEmptyString,
+  scope: ProviderSkillCreateScope,
+});
+export type ProviderSkillCreateInput = typeof ProviderSkillCreateInput.Type;
+
+export const ProviderSkillCreateResult = Schema.Struct({
+  path: TrimmedNonEmptyString,
+  providers: ServerProviders,
+});
+export type ProviderSkillCreateResult = typeof ProviderSkillCreateResult.Type;
+
+export class ProviderSkillManagementError extends Schema.TaggedErrorClass<ProviderSkillManagementError>()(
+  "ProviderSkillManagementError",
+  {
+    instanceId: ProviderInstanceId,
+    operation: Schema.Literals(["create", "setEnabled"]),
+    reason: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  override get message(): string {
+    return `Skill ${this.operation} failed for provider '${this.instanceId}': ${this.reason}`;
+  }
+}
 
 export const ServerProviderUpdateInput = Schema.Struct({
   provider: ProviderDriverKind,

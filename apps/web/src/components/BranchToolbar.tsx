@@ -239,7 +239,7 @@ export const BranchToolbar = memo(function BranchToolbar({
     draftId ? store.getDraftSession(draftId) : store.getDraftThreadByRef(threadRef),
   );
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
-  const activeProjectRef = serverThread
+  const activeProjectRef = serverThread?.projectId
     ? scopeProjectRef(serverThread.environmentId, serverThread.projectId)
     : draftThread
       ? scopeProjectRef(draftThread.environmentId, draftThread.projectId)
