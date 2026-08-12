@@ -188,6 +188,8 @@ function buildProps() {
     onRevertUserMessage: () => {},
     isRevertingCheckpoint: false,
     onImageExpand: () => {},
+    browserAgentLabel: "Codex",
+    onOpenBrowser: () => {},
     activeThreadEnvironmentId: ACTIVE_THREAD_ENVIRONMENT_ID,
     markdownCwd: undefined,
     resolvedTheme: "light" as const,
@@ -681,5 +683,43 @@ describe("MessagesTimeline", () => {
 
     expect(markup).toContain("lucide-x");
     expect(markup).toContain('aria-label="Tool call failed"');
+  });
+
+  it("renders browser automation as a click-to-open status row", () => {
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        activeTurnInProgress
+        isWorking
+        timelineEntries={[
+          {
+            id: "entry-browser",
+            kind: "work",
+            createdAt: MESSAGE_CREATED_AT,
+            entry: {
+              id: "work-browser",
+              createdAt: MESSAGE_CREATED_AT,
+              label: "t3-code · preview_snapshot",
+              tone: "tool",
+              itemType: "mcp_tool_call",
+              toolTitle: "t3-code · preview_snapshot",
+              toolData: {
+                type: "mcpToolCall",
+                server: "t3-code",
+                tool: "preview_snapshot",
+                arguments: {},
+                status: "inProgress",
+              },
+              toolLifecycleStatus: "inProgress",
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("Codex is using the browser");
+    expect(markup).toContain('aria-label="Codex is using the browser. Open browser"');
+    expect(markup).toContain("lucide-globe");
+    expect(markup).not.toContain("t3-code · preview_snapshot");
   });
 });

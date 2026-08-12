@@ -12,7 +12,7 @@ export const DEFAULT_PREVIEW_AUTOMATION_VIEWPORT = {
 } as const satisfies PreviewViewportSetting;
 
 export function shouldOpenPreviewMiniPlayer(input: PreviewAutomationOpenInput): boolean {
-  return input.open ?? input.show ?? true;
+  return input.open ?? input.show ?? false;
 }
 
 export function previewAutomationOpenNeedsOverlay(

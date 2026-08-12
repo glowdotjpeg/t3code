@@ -18,7 +18,7 @@ import { PreviewSnapshotToolkit, PreviewStandardToolkit, PreviewToolkit } from "
 export function normalizePreviewOpenInput(
   input: PreviewAutomationOpenInput,
 ): PreviewAutomationOpenInput {
-  const open = input.open ?? input.show ?? true;
+  const open = input.open ?? input.show ?? false;
   return {
     ...input,
     open,

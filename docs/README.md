@@ -5,6 +5,7 @@
 - [Install and first run](./user/install.md)
 - [Permission modes](./user/permission-modes.md)
 - [Keyboard shortcuts](./user/keybindings.md)
+- [Collaborative browser](./user/browser-preview.md)
 - [Organizing threads](./user/thread-sidebar.md)
 - [Projectless conversations](./user/projectless-conversations.md)
 - [Review usage](./user/usage.md)

@@ -85,7 +85,7 @@ export const PreviewAutomationOpenInput = Schema.Struct({
   open: Schema.optional(
     Schema.Boolean.annotate({
       description:
-        "Whether to open the thread-bound inline preview for the human. Defaults to true; set false for background-only automation.",
+        "Whether to open the thread-bound inline preview for the human. Defaults to false so automation does not interrupt the workspace.",
     }),
   ),
   show: Schema.optional(
@@ -110,7 +110,7 @@ export const PreviewAutomationOpenInput = Schema.Struct({
   )
   .annotate({
     description:
-      "Opens the collaborative browser for the current thread. Use preview_navigate afterward when readiness waiting matters.",
+      "Initializes the collaborative browser for the current thread. Use preview_navigate afterward when readiness waiting matters.",
   });
 export type PreviewAutomationOpenInput = typeof PreviewAutomationOpenInput.Type;
 
