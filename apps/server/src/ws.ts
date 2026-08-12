@@ -71,6 +71,10 @@ import {
   projectThreadDetailSnapshot,
 } from "./orchestration/ActivityPayloadProjection.ts";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer.ts";
+import {
+  filterProjectlessThreadsFromShell,
+  isProjectlessCompatibleShellItem,
+} from "./orchestration/ProjectlessThreads.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
 import {
@@ -1181,6 +1185,9 @@ const makeWsRpcLayer = (
           observeRpcStreamEffect(
             ORCHESTRATION_WS_METHODS.subscribeShell,
             Effect.gen(function* () {
+              const includeProjectlessThreads = input.includeProjectlessThreads === true;
+              const isCompatibleShellItem = (item: OrchestrationShellStreamItem) =>
+                isProjectlessCompatibleShellItem(item, includeProjectlessThreads);
               // Coalesce the live shell stream per aggregate over a small window
               // so bursts of high-frequency events (streaming message deltas,
               // activity appends) collapse into a single shell refetch and never
@@ -1201,9 +1208,14 @@ const makeWsRpcLayer = (
                 ),
                 { startImmediately: true },
               );
-              const bufferedLiveStream = coalesceShellLiveStream(Stream.fromQueue(liveBuffer));
+              const bufferedLiveStream = coalesceShellLiveStream(Stream.fromQueue(liveBuffer)).pipe(
+                Stream.filter(isCompatibleShellItem),
+              );
 
               const loadSnapshot = projectionSnapshotQuery.getShellSnapshot().pipe(
+                Effect.map((snapshot) =>
+                  filterProjectlessThreadsFromShell(snapshot, includeProjectlessThreads),
+                ),
                 Effect.tapError((cause) =>
                   Effect.logError("orchestration shell snapshot load failed", { cause }),
                 ),
@@ -1227,7 +1239,10 @@ const makeWsRpcLayer = (
                           Effect.andThen(Queue.takeAll(liveBuffer)),
                           Effect.flatMap(coalesceShellLiveInputs),
                         ),
-                      ).pipe(Stream.flatMap((items) => Stream.fromIterable(items))),
+                      ).pipe(
+                        Stream.flatMap((items) => Stream.fromIterable(items)),
+                        Stream.filter(isCompatibleShellItem),
+                      ),
                       bufferedLiveStream,
                     )
                   : bufferedLiveStream;
@@ -1262,6 +1277,7 @@ const makeWsRpcLayer = (
                   // buffer indefinitely while waiting for an empty page.
                   orchestrationEngine.readEvents(afterSequence, replayGap),
                 ).pipe(
+                  Stream.filter(isCompatibleShellItem),
                   Stream.mapError(
                     (cause) =>
                       new OrchestrationGetSnapshotError({
@@ -1284,10 +1300,16 @@ const makeWsRpcLayer = (
             }),
             { "rpc.aggregate": "orchestration" },
           ),
-        [ORCHESTRATION_WS_METHODS.getArchivedShellSnapshot]: (_input) =>
+        [ORCHESTRATION_WS_METHODS.getArchivedShellSnapshot]: (input) =>
           observeRpcEffect(
             ORCHESTRATION_WS_METHODS.getArchivedShellSnapshot,
             projectionSnapshotQuery.getArchivedShellSnapshot().pipe(
+              Effect.map((snapshot) =>
+                filterProjectlessThreadsFromShell(
+                  snapshot,
+                  input.includeProjectlessThreads === true,
+                ),
+              ),
               Effect.tapError((cause) =>
                 Effect.logError("orchestration archived shell snapshot load failed", { cause }),
               ),
@@ -1866,6 +1888,11 @@ const makeWsRpcLayer = (
                   ),
                 );
               if (Option.isNone(thread)) {
+                return yield* new AssetWorkspaceContextNotFoundError({
+                  resource: input.resource,
+                });
+              }
+              if (thread.value.projectId === null) {
                 return yield* new AssetWorkspaceContextNotFoundError({
                   resource: input.resource,
                 });

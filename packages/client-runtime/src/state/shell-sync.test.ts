@@ -150,7 +150,7 @@ describe("environment shell synchronization", () => {
     }),
   );
 
-  it.effect("requests a full socket snapshot when the HTTP refresh fails", () =>
+  it.effect("opts the web shell into projectless HTTP and socket snapshots", () =>
     Effect.gen(function* () {
       const cachedSnapshot: OrchestrationShellSnapshot = {
         snapshotSequence: 5,
@@ -168,12 +168,17 @@ describe("environment shell synchronization", () => {
       const wakeups = yield* Queue.unbounded<ConnectionWakeups.ConnectionWakeup>();
       const subscribeInputs = yield* Queue.unbounded<{
         readonly afterSequence?: number;
+        readonly includeProjectlessThreads?: boolean;
         readonly requestCompletionMarker?: boolean;
       }>();
       const loaderCalls = yield* Ref.make(0);
+      const loaderOptions = yield* Ref.make<
+        ReadonlyArray<{ readonly includeProjectlessThreads?: boolean } | undefined>
+      >([]);
       const client = {
         [ORCHESTRATION_WS_METHODS.subscribeShell]: (input: {
           readonly afterSequence?: number;
+          readonly includeProjectlessThreads?: boolean;
           readonly requestCompletionMarker?: boolean;
         }) =>
           Stream.unwrap(
@@ -208,9 +213,15 @@ describe("environment shell synchronization", () => {
         clear: () => Effect.void,
       });
       const snapshotLoader = ShellSnapshotLoader.of({
-        load: () => Ref.update(loaderCalls, (count) => count + 1).pipe(Effect.as(Option.none())),
+        load: (_prepared, options) =>
+          Ref.update(loaderOptions, (captured) => [...captured, options]).pipe(
+            Effect.andThen(Ref.update(loaderCalls, (count) => count + 1)),
+            Effect.as(Option.none()),
+          ),
       });
-      const shellState = yield* makeEnvironmentShellState().pipe(
+      const shellState = yield* makeEnvironmentShellState({
+        includeProjectlessThreads: true,
+      }).pipe(
         Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
         Effect.provideService(Persistence.EnvironmentCacheStore, cache),
         Effect.provideService(ShellSnapshotLoader, snapshotLoader),
@@ -222,8 +233,10 @@ describe("environment shell synchronization", () => {
 
       const subscribeInput = yield* Queue.take(subscribeInputs);
       expect(subscribeInput.afterSequence).toBeUndefined();
+      expect(subscribeInput.includeProjectlessThreads).toBe(true);
       expect(subscribeInput.requestCompletionMarker).toBe(true);
       expect(yield* Ref.get(loaderCalls)).toBe(1);
+      expect(yield* Ref.get(loaderOptions)).toEqual([{ includeProjectlessThreads: true }]);
       const synchronizing = yield* SubscriptionRef.get(shellState);
       expect(synchronizing.status).toBe("synchronizing");
       expect(Option.getOrThrow(synchronizing.snapshot)).toEqual(cachedSnapshot);
@@ -242,6 +255,7 @@ describe("environment shell synchronization", () => {
       yield* Queue.offer(wakeups, "application-active");
       const resumedInput = yield* Queue.take(subscribeInputs);
       expect(resumedInput.afterSequence).toBe(resetSnapshot.snapshotSequence);
+      expect(resumedInput.includeProjectlessThreads).toBe(true);
       expect(resumedInput.requestCompletionMarker).toBe(true);
       expect(yield* Ref.get(loaderCalls)).toBe(1);
     }),
@@ -252,14 +266,23 @@ describe("environment shell synchronization", () => {
       const events = yield* Queue.unbounded<OrchestrationShellStreamItem>();
       const wakeups = yield* Queue.unbounded<ConnectionWakeups.ConnectionWakeup>();
       const loaderCalls = yield* Ref.make(0);
-      const capturedAfterSequences = yield* Ref.make<ReadonlyArray<number | undefined>>([]);
+      const capturedInputs = yield* Ref.make<
+        ReadonlyArray<{
+          readonly afterSequence?: number;
+          readonly includeProjectlessThreads?: boolean;
+          readonly requestCompletionMarker?: boolean;
+        }>
+      >([]);
       const client = {
-        [ORCHESTRATION_WS_METHODS.subscribeShell]: (input: { readonly afterSequence?: number }) =>
+        [ORCHESTRATION_WS_METHODS.subscribeShell]: (input: {
+          readonly afterSequence?: number;
+          readonly includeProjectlessThreads?: boolean;
+          readonly requestCompletionMarker?: boolean;
+        }) =>
           Stream.unwrap(
-            Ref.update(capturedAfterSequences, (captured) => [
-              ...captured,
-              input.afterSequence,
-            ]).pipe(Effect.as(Stream.fromQueue(events))),
+            Ref.update(capturedInputs, (captured) => [...captured, input]).pipe(
+              Effect.as(Stream.fromQueue(events)),
+            ),
           ),
       } as unknown as WsRpcProtocolClient;
       const supervisorState = yield* SubscriptionRef.make(AVAILABLE_CONNECTION_STATE);
@@ -307,10 +330,12 @@ describe("environment shell synchronization", () => {
 
       // A new session starts from an authoritative HTTP snapshot.
       for (let attempt = 0; attempt < 100; attempt += 1) {
-        if ((yield* Ref.get(capturedAfterSequences)).length >= 1) break;
+        if ((yield* Ref.get(capturedInputs)).length >= 1) break;
         yield* Effect.yieldNow;
       }
-      expect(yield* Ref.get(capturedAfterSequences)).toEqual([10]);
+      expect(yield* Ref.get(capturedInputs)).toEqual([
+        { afterSequence: 10, requestCompletionMarker: true },
+      ]);
       yield* Queue.offer(events, { kind: "synchronized" });
       yield* SubscriptionRef.changes(shellState).pipe(
         Stream.filter((value) => value.status === "live"),
@@ -331,33 +356,45 @@ describe("environment shell synchronization", () => {
 
       yield* Queue.offer(wakeups, "application-active");
       for (let attempt = 0; attempt < 100; attempt += 1) {
-        if ((yield* Ref.get(capturedAfterSequences)).length >= 2) break;
+        if ((yield* Ref.get(capturedInputs)).length >= 2) break;
         yield* Effect.yieldNow;
       }
-      expect(yield* Ref.get(capturedAfterSequences)).toEqual([10, 40]);
+      expect(yield* Ref.get(capturedInputs)).toEqual([
+        { afterSequence: 10, requestCompletionMarker: true },
+        { afterSequence: 40, requestCompletionMarker: true },
+      ]);
       yield* Queue.offer(events, { kind: "synchronized" });
 
       yield* Queue.offer(wakeups, "application-active-probe");
       for (let attempt = 0; attempt < 100; attempt += 1) {
-        if ((yield* Ref.get(capturedAfterSequences)).length >= 3) break;
+        if ((yield* Ref.get(capturedInputs)).length >= 3) break;
         yield* Effect.yieldNow;
       }
-      expect(yield* Ref.get(capturedAfterSequences)).toEqual([10, 40, 40]);
+      expect(yield* Ref.get(capturedInputs)).toEqual([
+        { afterSequence: 10, requestCompletionMarker: true },
+        { afterSequence: 40, requestCompletionMarker: true },
+        { afterSequence: 40, requestCompletionMarker: true },
+      ]);
 
       yield* Queue.offer(wakeups, "application-active-reconnect");
       for (let attempt = 0; attempt < 10; attempt += 1) {
         yield* Effect.yieldNow;
       }
-      expect((yield* Ref.get(capturedAfterSequences)).length).toBe(3);
+      expect((yield* Ref.get(capturedInputs)).length).toBe(3);
       expect(yield* Ref.get(loaderCalls)).toBe(1);
 
       // Replacing the session performs another authoritative refresh.
       yield* SubscriptionRef.set(activeSession, Option.some(session(client)));
       for (let attempt = 0; attempt < 100; attempt += 1) {
-        if ((yield* Ref.get(capturedAfterSequences)).length >= 4) break;
+        if ((yield* Ref.get(capturedInputs)).length >= 4) break;
         yield* Effect.yieldNow;
       }
-      expect(yield* Ref.get(capturedAfterSequences)).toEqual([10, 40, 40, 20]);
+      expect(yield* Ref.get(capturedInputs)).toEqual([
+        { afterSequence: 10, requestCompletionMarker: true },
+        { afterSequence: 40, requestCompletionMarker: true },
+        { afterSequence: 40, requestCompletionMarker: true },
+        { afterSequence: 20, requestCompletionMarker: true },
+      ]);
       expect(yield* Ref.get(loaderCalls)).toBe(2);
     }),
   );

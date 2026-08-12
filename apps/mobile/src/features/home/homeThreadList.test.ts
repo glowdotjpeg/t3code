@@ -72,6 +72,32 @@ function buildGroups(
 }
 
 describe("buildHomeThreadGroups", () => {
+  it("does not add projectless conversations to mobile project groups", () => {
+    const environmentId = EnvironmentId.make("environment-1");
+    const project = makeProject({
+      environmentId,
+      id: ProjectId.make("project-1"),
+      title: "T3 Code",
+    });
+    const projectThread = makeThread({
+      environmentId,
+      id: ThreadId.make("thread-project"),
+      projectId: project.id,
+      title: "Project thread",
+    });
+    const projectlessThread = makeThread({
+      environmentId,
+      id: ThreadId.make("thread-projectless"),
+      projectId: null,
+      title: "Projectless conversation",
+    });
+
+    const groups = buildGroups([project], [projectThread, projectlessThread]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.threads.map((thread) => thread.id)).toEqual([projectThread.id]);
+  });
+
   it("builds one v2 scope for the same repository across environments", () => {
     const localEnvironmentId = EnvironmentId.make("environment-local");
     const remoteEnvironmentId = EnvironmentId.make("environment-remote");

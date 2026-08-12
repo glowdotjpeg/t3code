@@ -82,3 +82,19 @@ The previous custom branches were removed on August 12, 2026. Their final commit
 - `archive/clickable-markdown-before-reset-2026-08-12`
 
 There is no scheduled or background synchronization. Updates happen only when a development command or `pnpm run fork:sync` performs the visible check.
+
+## Projectless conversations
+
+This fork lets the web and desktop clients create persistent conversations without choosing a
+project. Use **New conversation** in the command palette, or the landing-page action shown when no
+projects exist. Each thread receives an isolated working directory below the server state directory
+at `projectless-threads/thread-<thread-id>` so every provider, including providers that require a
+working directory, starts reliably without inheriting an unrelated repository.
+
+The web client explicitly opts into projectless shell, archive, and search results. Clients that do
+not opt in—including the current mobile app—receive only project-backed threads. Projectless
+threads therefore do not enter mobile project grouping or navigation, and older clients keep the
+same socket shape they already understand.
+
+Projectless conversations intentionally have no branch, worktree, terminal, Git checkpoint, or
+diff context. Add or choose a project when the agent needs to work with repository files.

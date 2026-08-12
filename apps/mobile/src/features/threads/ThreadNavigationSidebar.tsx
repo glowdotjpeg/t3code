@@ -334,7 +334,9 @@ function ThreadNavigationSidebarPane(
       selectedProjectRefs === null
         ? threads
         : threads.filter((thread) =>
-            selectedProjectRefs.has(scopedProjectKey(thread.environmentId, thread.projectId)),
+            thread.projectId === null
+              ? false
+              : selectedProjectRefs.has(scopedProjectKey(thread.environmentId, thread.projectId)),
           ),
     [selectedProjectRefs, threads],
   );
@@ -920,6 +922,7 @@ function ThreadNavigationSidebarPane(
         }
         case "v2-thread": {
           const thread = item.item.thread;
+          if (thread.projectId === null) return null;
           const scopeKey = scopedProjectKey(thread.environmentId, thread.projectId);
           return (
             <ThreadListV2Row
@@ -1054,6 +1057,7 @@ function ThreadNavigationSidebarPane(
           );
         case "thread": {
           const thread = item.thread;
+          if (thread.projectId === null) return null;
           return (
             <ThreadListRow
               variant="sidebar"

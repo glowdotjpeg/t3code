@@ -350,7 +350,11 @@ export function HomeScreen(props: HomeScreenProps) {
       selectedProjectRefKeys === null
         ? props.threads
         : props.threads.filter((thread) =>
-            selectedProjectRefKeys.has(scopedProjectKey(thread.environmentId, thread.projectId)),
+            thread.projectId === null
+              ? false
+              : selectedProjectRefKeys.has(
+                  scopedProjectKey(thread.environmentId, thread.projectId),
+                ),
           ),
     [props.threads, selectedProjectRefKeys],
   );
@@ -788,6 +792,7 @@ export function HomeScreen(props: HomeScreenProps) {
         );
       }
       const thread = item.item.thread;
+      if (thread.projectId === null) return null;
       return (
         <ThreadListV2Row
           thread={thread}
@@ -966,6 +971,7 @@ export function HomeScreen(props: HomeScreenProps) {
           );
         case "thread": {
           const thread = item.thread;
+          if (thread.projectId === null) return null;
           return (
             <ThreadListRow
               variant="compact"

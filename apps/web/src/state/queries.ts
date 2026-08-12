@@ -50,7 +50,7 @@ const threadSearchResultsAtom = createThreadSearchResultsAtomFamily({
   getSearchAtom: (environmentId, query) =>
     orchestrationEnvironment.threadSearch({
       environmentId,
-      input: { query },
+      input: { query, includeProjectlessThreads: true },
     }),
   labelPrefix: "web:thread-search",
 });

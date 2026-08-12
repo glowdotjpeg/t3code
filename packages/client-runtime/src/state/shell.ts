@@ -49,13 +49,29 @@ function shellStatusForSnapshot(
 
 const SHELL_SYNCHRONIZATION_ERROR_MESSAGE = "Could not synchronize environment data.";
 
-export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")(function* () {
+export interface EnvironmentShellOptions {
+  readonly includeProjectlessThreads?: boolean;
+}
+
+export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")(function* (
+  options: EnvironmentShellOptions = {},
+) {
   const supervisor = yield* EnvironmentSupervisor;
   const cache = yield* EnvironmentCacheStore;
   const snapshotLoader = yield* ShellSnapshotLoader;
   const wakeups = yield* Effect.serviceOption(ConnectionWakeups.ConnectionWakeups);
   const environmentId = supervisor.target.environmentId;
   const cachedSnapshot = yield* cache.loadShell(environmentId).pipe(
+    Effect.map(
+      Option.map((snapshot) =>
+        options.includeProjectlessThreads === true
+          ? snapshot
+          : {
+              ...snapshot,
+              threads: snapshot.threads.filter((thread) => thread.projectId !== null),
+            },
+      ),
+    ),
     Effect.catch((error) =>
       Effect.logWarning("Could not load cached environment shell.").pipe(
         Effect.annotateLogs({
@@ -218,7 +234,9 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
               }),
             ),
           );
-          const httpSnapshot = yield* snapshotLoader.load(prepared);
+          const httpSnapshot = yield* snapshotLoader.load(prepared, {
+            includeProjectlessThreads: options.includeProjectlessThreads === true,
+          });
           if (Option.isSome(httpSnapshot)) {
             yield* applyItem({ kind: "snapshot", snapshot: httpSnapshot.value });
             canResume = true;
@@ -229,7 +247,12 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
         // If the authoritative refresh failed, omit the cached cursor so the
         // socket fallback sends a complete snapshot for this new session.
         if (!canResume || Option.isNone(current.snapshot)) {
-          return supportsCompletionMarker ? { requestCompletionMarker: true as const } : {};
+          return {
+            ...(supportsCompletionMarker ? { requestCompletionMarker: true as const } : {}),
+            ...(options.includeProjectlessThreads === true
+              ? { includeProjectlessThreads: true as const }
+              : {}),
+          };
         }
         if (!supportsCompletionMarker) {
           // Without a completion marker there is no synchronized signal for a
@@ -243,6 +266,9 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
         return {
           afterSequence: current.snapshot.value.snapshotSequence,
           ...(supportsCompletionMarker ? { requestCompletionMarker: true as const } : {}),
+          ...(options.includeProjectlessThreads === true
+            ? { includeProjectlessThreads: true as const }
+            : {}),
         };
       }),
       {
@@ -269,10 +295,13 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
   return state;
 });
 
-export function shellStateChanges(environmentId: EnvironmentId) {
+export function shellStateChanges(
+  environmentId: EnvironmentId,
+  options: EnvironmentShellOptions = {},
+) {
   return followStreamInEnvironment(
     environmentId,
-    Stream.unwrap(makeEnvironmentShellState().pipe(Effect.map(SubscriptionRef.changes))),
+    Stream.unwrap(makeEnvironmentShellState(options).pipe(Effect.map(SubscriptionRef.changes))),
   );
 }
 
@@ -395,9 +424,10 @@ export function createEnvironmentShellAtoms<R, E>(
     EnvironmentRegistry | EnvironmentCacheStore | ShellSnapshotLoader | R,
     E
   >,
+  options: EnvironmentShellOptions = {},
 ) {
   const stateAtom = Atom.family((environmentId: EnvironmentId) =>
-    runtime.atom(shellStateChanges(environmentId), {
+    runtime.atom(shellStateChanges(environmentId, options), {
       initialValue: EMPTY_SHELL_STATE,
     }),
   );

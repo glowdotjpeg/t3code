@@ -118,10 +118,11 @@ const ProjectionCountsRowSchema = Schema.Struct({
 const ProjectionThreadSearchRequest = Schema.Struct({
   pattern: Schema.String,
   limit: Schema.Int,
+  includeProjectlessThreads: Schema.Boolean,
 });
 const ProjectionThreadSearchRow = Schema.Struct({
   threadId: ThreadId,
-  projectId: ProjectId,
+  projectId: Schema.NullOr(ProjectId),
   source: OrchestrationThreadSearchSource,
   matchText: Schema.String,
   messageCreatedAt: Schema.NullOr(IsoDateTime),
@@ -773,7 +774,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
   const searchActiveThreadRows = SqlSchema.findAll({
     Request: ProjectionThreadSearchRequest,
     Result: ProjectionThreadSearchRow,
-    execute: ({ pattern, limit }) =>
+    execute: ({ pattern, limit, includeProjectlessThreads }) =>
       sql`
         WITH ranked AS (
           SELECT
@@ -803,11 +804,12 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           FROM projection_thread_messages AS messages
           INNER JOIN projection_threads AS threads
             ON threads.thread_id = messages.thread_id
-          INNER JOIN projection_projects AS projects
+          LEFT JOIN projection_projects AS projects
             ON projects.project_id = threads.project_id
           WHERE threads.deleted_at IS NULL
             AND threads.archived_at IS NULL
-            AND projects.deleted_at IS NULL
+            AND (threads.project_id IS NULL OR projects.deleted_at IS NULL)
+            AND (${includeProjectlessThreads ? 1 : 0} = 1 OR threads.project_id IS NOT NULL)
             AND messages.is_streaming = 0
             AND (
               messages.role = 'user'
@@ -2135,6 +2137,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     const rows = yield* searchActiveThreadRows({
       pattern: `%${escapedQuery}%`,
       limit: input.limit ?? 50,
+      includeProjectlessThreads: input.includeProjectlessThreads === true,
     }).pipe(
       Effect.mapError(
         toPersistenceSqlOrDecodeError(

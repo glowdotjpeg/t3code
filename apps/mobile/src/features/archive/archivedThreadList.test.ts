@@ -143,4 +143,29 @@ describe("buildArchivedThreadGroups", () => {
 
     expect(result).toEqual([]);
   });
+
+  it("ignores projectless archived threads", () => {
+    const project = makeProject({ id: ProjectId.make("project-1"), title: "T3 Code" });
+    const projectThread = makeThread({
+      id: ThreadId.make("thread-project"),
+      projectId: project.id,
+      title: "Project thread",
+    });
+    const projectlessThread = makeThread({
+      id: ThreadId.make("thread-projectless"),
+      projectId: null,
+      title: "Projectless conversation",
+    });
+
+    const result = buildArchivedThreadGroups({
+      snapshots: [makeSnapshot([project], [projectThread, projectlessThread])],
+      environmentLabels: {},
+      environmentId: null,
+      searchQuery: "",
+      sortOrder: "newest",
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.threads.map((thread) => thread.id)).toEqual([projectThread.id]);
+  });
 });
