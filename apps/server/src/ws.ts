@@ -1469,6 +1469,36 @@ const makeWsRpcLayer = (
             ).pipe(Effect.map((providers) => ({ providers }))),
             { "rpc.aggregate": "server" },
           ),
+        [WS_METHODS.skillsRead]: (input) =>
+          observeRpcEffect(WS_METHODS.skillsRead, providerRegistry.readSkill(input), {
+            "rpc.aggregate": "skills",
+          }),
+        [WS_METHODS.skillsCreate]: (input) =>
+          observeRpcEffect(WS_METHODS.skillsCreate, providerRegistry.createSkill(input), {
+            "rpc.aggregate": "skills",
+          }),
+        [WS_METHODS.skillsUpdate]: (input) =>
+          observeRpcEffect(WS_METHODS.skillsUpdate, providerRegistry.updateSkill(input), {
+            "rpc.aggregate": "skills",
+          }),
+        [WS_METHODS.skillsDelete]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.skillsDelete,
+            providerRegistry.deleteSkill(input).pipe(Effect.map((providers) => ({ providers }))),
+            { "rpc.aggregate": "skills" },
+          ),
+        [WS_METHODS.skillsInstall]: (input) =>
+          observeRpcEffect(WS_METHODS.skillsInstall, providerRegistry.installSkills(input), {
+            "rpc.aggregate": "skills",
+          }),
+        [WS_METHODS.skillsSetEnabled]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.skillsSetEnabled,
+            providerRegistry
+              .setSkillEnabled(input)
+              .pipe(Effect.map((providers) => ({ providers }))),
+            { "rpc.aggregate": "skills" },
+          ),
         [WS_METHODS.serverUpdateProvider]: (input) =>
           observeRpcEffect(
             WS_METHODS.serverUpdateProvider,

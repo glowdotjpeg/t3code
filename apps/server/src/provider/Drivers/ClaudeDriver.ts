@@ -55,6 +55,7 @@ import {
   type ProviderSnapshotSettings,
 } from "../providerUpdateSettings.ts";
 import { makeClaudeCapabilitiesCacheKey, makeClaudeContinuationGroupKey } from "./ClaudeHome.ts";
+import { resolveClaudeConfigDirPath } from "./ClaudeSkills.ts";
 const decodeClaudeSettings = Schema.decodeSync(ClaudeSettings);
 
 const DRIVER_KIND = ProviderDriverKind.make("claudeAgent");
@@ -80,6 +81,13 @@ const UPDATE = makePackageManagedProviderMaintenanceResolver({
     isCommandPath: isClaudeNativeCommandPath,
   },
 });
+const SKILL_MANAGEMENT_CAPABILITIES = {
+  canCreate: true,
+  canInstall: true,
+  canEdit: true,
+  canDelete: true,
+  canToggle: false,
+} as const;
 
 export type ClaudeDriverEnv =
   | BackgroundPolicy.BackgroundPolicy
@@ -106,6 +114,7 @@ const withInstanceIdentity =
     ...(input.displayName ? { displayName: input.displayName } : {}),
     ...(input.accentColor ? { accentColor: input.accentColor } : {}),
     continuation: { groupKey: input.continuationGroupKey },
+    skillManagement: SKILL_MANAGEMENT_CAPABILITIES,
   });
 
 export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
@@ -203,6 +212,19 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
         ),
       );
 
+      const claudeConfigDirectory = yield* resolveClaudeConfigDirPath(
+        effectiveConfig,
+        processEnv,
+        cwd,
+      ).pipe(Effect.provideService(Path.Path, path));
+      const skillManagement: NonNullable<ProviderInstance["skillManagement"]> = {
+        capabilities: SKILL_MANAGEMENT_CAPABILITIES,
+        roots: {
+          personal: path.join(claudeConfigDirectory, "skills"),
+          project: path.join(cwd, ".claude", "skills"),
+        },
+      };
+
       return {
         instanceId,
         driverKind: DRIVER_KIND,
@@ -216,6 +238,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
         snapshot,
         adapter,
         textGeneration,
+        skillManagement,
       } satisfies ProviderInstance;
     }),
 };

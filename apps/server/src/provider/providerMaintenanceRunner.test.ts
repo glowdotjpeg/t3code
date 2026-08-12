@@ -189,6 +189,12 @@ function makeRegistry(
       getProviders: Ref.get(providersRef),
       refresh: () => Ref.get(providersRef),
       refreshInstance: () => Ref.get(providersRef),
+      readSkill: () => Effect.die("Skill management is not configured in this test."),
+      createSkill: () => Effect.die("Skill management is not configured in this test."),
+      updateSkill: () => Effect.die("Skill management is not configured in this test."),
+      deleteSkill: () => Effect.die("Skill management is not configured in this test."),
+      installSkills: () => Effect.die("Skill management is not configured in this test."),
+      setSkillEnabled: () => Effect.die("Skill management is not configured in this test."),
       getProviderMaintenanceCapabilitiesForInstance: (_instanceId, provider) =>
         Effect.succeed(lifecycleFor(provider)),
       setProviderMaintenanceActionState,

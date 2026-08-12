@@ -24,7 +24,11 @@
  */
 import {
   defaultInstanceIdForDriver,
+  ProviderSkillManagementError,
   ProviderDriverKind,
+  type ProviderSkillDocument,
+  type ProviderSkillManagementError as ProviderSkillManagementErrorType,
+  type ProviderSkillManagementCapabilities,
   type ProviderInstanceId,
   type ServerProvider,
   type ServerProviderUpdateState,
@@ -41,6 +45,7 @@ import * as Stream from "effect/Stream";
 import * as Semaphore from "effect/Semaphore";
 
 import { ServerConfig } from "../../config.ts";
+import * as ProcessRunner from "../../processRunner.ts";
 import { ProviderInstanceRegistry } from "../Services/ProviderInstanceRegistry.ts";
 import { ProviderRegistry, type ProviderRegistryShape } from "../Services/ProviderRegistry.ts";
 import {
@@ -52,6 +57,13 @@ import {
   writeProviderStatusCache,
 } from "../providerStatusCache.ts";
 import type { ProviderInstance } from "../ProviderDriver.ts";
+import {
+  createProviderSkillFile,
+  deleteProviderSkillFile,
+  installProviderSkills,
+  readProviderSkillFile,
+  updateProviderSkillFile,
+} from "../ProviderSkillFiles.ts";
 import { makeManualOnlyProviderMaintenanceCapabilities } from "../providerMaintenance.ts";
 import type { ProviderSnapshotSource } from "../builtInProviderCatalog.ts";
 
@@ -213,6 +225,7 @@ export const ProviderRegistryLive = Layer.effect(
     const config = yield* ServerConfig;
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
+    const processRunner = yield* ProcessRunner.ProcessRunner;
 
     // Aggregator PubSub — consumers (WS gateway, etc.) subscribe here for
     // coalesced updates across every instance.
@@ -704,12 +717,240 @@ export const ProviderRegistryLive = Layer.effect(
       return yield* Ref.get(providersRef);
     });
 
+    type SkillOperation = ProviderSkillManagementErrorType["operation"];
+    type SkillCapability = keyof ProviderSkillManagementCapabilities;
+
+    const skillError = (
+      instanceId: ProviderInstanceId,
+      operation: SkillOperation,
+      reason: string,
+      cause?: unknown,
+    ) =>
+      new ProviderSkillManagementError({
+        instanceId,
+        operation,
+        reason,
+        ...(cause === undefined ? {} : { cause }),
+      });
+
+    const requireSkillManager = Effect.fn("requireSkillManager")(function* (
+      instanceId: ProviderInstanceId,
+      operation: SkillOperation,
+      capability: SkillCapability,
+    ) {
+      const instance = yield* instanceRegistry.getInstance(instanceId);
+      const manager = instance?.skillManagement;
+      if (!instance || !manager) {
+        return yield* skillError(
+          instanceId,
+          operation,
+          "This provider does not expose skill management.",
+        );
+      }
+      if (!manager.capabilities[capability]) {
+        return yield* skillError(
+          instanceId,
+          operation,
+          "This provider does not support that skill operation.",
+        );
+      }
+      return { instance, manager } as const;
+    });
+
+    const findSkill = Effect.fn("findManagedSkill")(function* (
+      instance: ProviderInstance,
+      pathValue: string,
+      operation: SkillOperation,
+    ) {
+      const snapshot = yield* instance.snapshot.getSnapshot;
+      const skill = snapshot.skills.find((candidate) => candidate.path === pathValue);
+      if (!skill) {
+        return yield* skillError(
+          instance.instanceId,
+          operation,
+          "The selected skill is no longer available. Refresh the list and try again.",
+        );
+      }
+      return skill;
+    });
+
+    const readSkillDocument = Effect.fn("readSkillDocument")(function* (
+      instance: ProviderInstance,
+      skill: ServerProvider["skills"][number],
+      operation: SkillOperation,
+    ): Effect.fn.Return<ProviderSkillDocument, ProviderSkillManagementErrorType> {
+      const manager = instance.skillManagement;
+      if (!manager) {
+        return yield* skillError(
+          instance.instanceId,
+          operation,
+          "This provider does not expose skill management.",
+        );
+      }
+      const file = yield* readProviderSkillFile({
+        fileSystem,
+        path,
+        roots: manager.roots,
+        skillPath: skill.path,
+      }).pipe(
+        Effect.mapError((cause) =>
+          skillError(instance.instanceId, operation, cause.message, cause),
+        ),
+      );
+      return {
+        skill,
+        content: file.content,
+        revision: file.revision,
+        editable: file.editable && manager.capabilities.canEdit,
+        deletable: file.editable && manager.capabilities.canDelete,
+      };
+    });
+
+    const refreshManagedInstance = (instanceId: ProviderInstanceId) =>
+      refreshInstance(instanceId).pipe(Effect.catchCause(recoverRefreshFailure));
+
+    const readSkill: ProviderRegistryShape["readSkill"] = (input) =>
+      Effect.gen(function* () {
+        const { instance } = yield* requireSkillManager(input.instanceId, "read", "canEdit");
+        const skill = yield* findSkill(instance, input.path, "read");
+        return yield* readSkillDocument(instance, skill, "read");
+      });
+
+    const createSkill: ProviderRegistryShape["createSkill"] = (input) =>
+      Effect.gen(function* () {
+        const { instance, manager } = yield* requireSkillManager(
+          input.instanceId,
+          "create",
+          "canCreate",
+        );
+        const skillPath = yield* createProviderSkillFile({
+          fileSystem,
+          path,
+          roots: manager.roots,
+          name: input.name,
+          description: input.description,
+          scope: input.scope,
+        }).pipe(
+          Effect.mapError((cause) => skillError(input.instanceId, "create", cause.message, cause)),
+        );
+        const providers = yield* refreshManagedInstance(input.instanceId);
+        const skill = providers
+          .find((provider) => provider.instanceId === input.instanceId)
+          ?.skills.find((candidate) => candidate.path === skillPath) ?? {
+          name: input.name,
+          description: input.description,
+          path: skillPath,
+          scope: input.scope,
+          enabled: true,
+        };
+        const document = yield* readSkillDocument(instance, skill, "create");
+        return { document, providers };
+      });
+
+    const updateSkill: ProviderRegistryShape["updateSkill"] = (input) =>
+      Effect.gen(function* () {
+        const { instance, manager } = yield* requireSkillManager(
+          input.instanceId,
+          "update",
+          "canEdit",
+        );
+        const previousSkill = yield* findSkill(instance, input.path, "update");
+        const file = yield* updateProviderSkillFile({
+          fileSystem,
+          path,
+          roots: manager.roots,
+          skillPath: input.path,
+          content: input.content,
+          expectedRevision: input.expectedRevision,
+        }).pipe(
+          Effect.mapError((cause) => skillError(input.instanceId, "update", cause.message, cause)),
+        );
+        const providers = yield* refreshManagedInstance(input.instanceId);
+        const skill =
+          providers
+            .find((provider) => provider.instanceId === input.instanceId)
+            ?.skills.find((candidate) => candidate.path === input.path) ?? previousSkill;
+        return {
+          document: {
+            skill,
+            content: file.content,
+            revision: file.revision,
+            editable: true,
+            deletable: manager.capabilities.canDelete,
+          },
+          providers,
+        };
+      });
+
+    const deleteSkill: ProviderRegistryShape["deleteSkill"] = (input) =>
+      Effect.gen(function* () {
+        const { instance, manager } = yield* requireSkillManager(
+          input.instanceId,
+          "delete",
+          "canDelete",
+        );
+        yield* findSkill(instance, input.path, "delete");
+        yield* deleteProviderSkillFile({
+          fileSystem,
+          path,
+          roots: manager.roots,
+          skillPath: input.path,
+          expectedRevision: input.expectedRevision,
+        }).pipe(
+          Effect.mapError((cause) => skillError(input.instanceId, "delete", cause.message, cause)),
+        );
+        return yield* refreshManagedInstance(input.instanceId);
+      });
+
+    const installSkills: ProviderRegistryShape["installSkills"] = (input) =>
+      Effect.gen(function* () {
+        const { manager } = yield* requireSkillManager(input.instanceId, "install", "canInstall");
+        const paths = yield* installProviderSkills({
+          fileSystem,
+          path,
+          processRunner,
+          roots: manager.roots,
+          source: input.source,
+          ...(input.skillName === undefined ? {} : { skillName: input.skillName }),
+          scope: input.scope,
+        }).pipe(
+          Effect.mapError((cause) => skillError(input.instanceId, "install", cause.message, cause)),
+        );
+        const providers = yield* refreshManagedInstance(input.instanceId);
+        return { paths, providers };
+      });
+
+    const setSkillEnabled: ProviderRegistryShape["setSkillEnabled"] = (input) =>
+      Effect.gen(function* () {
+        const { instance, manager } = yield* requireSkillManager(
+          input.instanceId,
+          "setEnabled",
+          "canToggle",
+        );
+        yield* findSkill(instance, input.path, "setEnabled");
+        if (!manager.setEnabled) {
+          return yield* skillError(
+            input.instanceId,
+            "setEnabled",
+            "This provider does not support enabling or disabling skills.",
+          );
+        }
+        yield* manager.setEnabled({ path: input.path, enabled: input.enabled });
+        return yield* refreshManagedInstance(input.instanceId);
+      });
+
     return {
       getProviders: Ref.get(providersRef),
       refresh: (provider?: ProviderDriverKind) =>
         refresh(provider).pipe(Effect.catchCause(recoverRefreshFailure)),
       refreshInstance: (instanceId: ProviderInstanceId) =>
         refreshInstance(instanceId).pipe(Effect.catchCause(recoverRefreshFailure)),
+      readSkill,
+      createSkill,
+      updateSkill,
+      deleteSkill,
+      installSkills,
+      setSkillEnabled,
       getProviderMaintenanceCapabilitiesForInstance,
       setProviderMaintenanceActionState,
       get streamChanges() {
@@ -717,4 +958,4 @@ export const ProviderRegistryLive = Layer.effect(
       },
     } satisfies ProviderRegistryShape;
   }),
-);
+).pipe(Layer.provide(ProcessRunner.layer));

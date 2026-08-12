@@ -8,6 +8,7 @@
 - [Organizing threads](./user/thread-sidebar.md)
 - [Projectless conversations](./user/projectless-conversations.md)
 - [Review usage](./user/usage.md)
+- [Browse, install, and create skills](./user/skills.md)
 - [Customize a project icon](./user/project-settings.md)
 - [Remote access](./user/remote-access.md)
 - [Keeping app and server in sync](./user/updating.md)

@@ -146,6 +146,16 @@ import {
   PreviewAutomationStreamEvent,
 } from "./previewAutomation.ts";
 import {
+  ProviderSkillCreateInput,
+  ProviderSkillDeleteInput,
+  ProviderSkillDocument,
+  ProviderSkillInstallInput,
+  ProviderSkillInstallResult,
+  ProviderSkillManagementError,
+  ProviderSkillReadInput,
+  ProviderSkillSetEnabledInput,
+  ProviderSkillUpdateInput,
+  ProviderSkillWriteResult,
   ServerConfigStreamEvent,
   ServerConfig,
   ServerProviderUpdateError,
@@ -268,6 +278,14 @@ export const WS_METHODS = {
   serverGetBackgroundPolicy: "server.getBackgroundPolicy",
   serverGetUsageSummary: "server.getUsageSummary",
 
+  // Provider skills
+  skillsRead: "skills.read",
+  skillsCreate: "skills.create",
+  skillsUpdate: "skills.update",
+  skillsDelete: "skills.delete",
+  skillsInstall: "skills.install",
+  skillsSetEnabled: "skills.setEnabled",
+
   // Cloud environment methods
   cloudGetRelayClientStatus: "cloud.getRelayClientStatus",
   cloudInstallRelayClient: "cloud.installRelayClient",
@@ -341,6 +359,42 @@ export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProv
   }),
   success: ServerProviderUpdatedPayload,
   error: EnvironmentAuthorizationError,
+});
+
+export const WsSkillsReadRpc = Rpc.make(WS_METHODS.skillsRead, {
+  payload: ProviderSkillReadInput,
+  success: ProviderSkillDocument,
+  error: Schema.Union([ProviderSkillManagementError, EnvironmentAuthorizationError]),
+});
+
+export const WsSkillsCreateRpc = Rpc.make(WS_METHODS.skillsCreate, {
+  payload: ProviderSkillCreateInput,
+  success: ProviderSkillWriteResult,
+  error: Schema.Union([ProviderSkillManagementError, EnvironmentAuthorizationError]),
+});
+
+export const WsSkillsUpdateRpc = Rpc.make(WS_METHODS.skillsUpdate, {
+  payload: ProviderSkillUpdateInput,
+  success: ProviderSkillWriteResult,
+  error: Schema.Union([ProviderSkillManagementError, EnvironmentAuthorizationError]),
+});
+
+export const WsSkillsDeleteRpc = Rpc.make(WS_METHODS.skillsDelete, {
+  payload: ProviderSkillDeleteInput,
+  success: ServerProviderUpdatedPayload,
+  error: Schema.Union([ProviderSkillManagementError, EnvironmentAuthorizationError]),
+});
+
+export const WsSkillsInstallRpc = Rpc.make(WS_METHODS.skillsInstall, {
+  payload: ProviderSkillInstallInput,
+  success: ProviderSkillInstallResult,
+  error: Schema.Union([ProviderSkillManagementError, EnvironmentAuthorizationError]),
+});
+
+export const WsSkillsSetEnabledRpc = Rpc.make(WS_METHODS.skillsSetEnabled, {
+  payload: ProviderSkillSetEnabledInput,
+  success: ServerProviderUpdatedPayload,
+  error: Schema.Union([ProviderSkillManagementError, EnvironmentAuthorizationError]),
 });
 
 export const WsServerUpdateProviderRpc = Rpc.make(WS_METHODS.serverUpdateProvider, {
@@ -950,6 +1004,12 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerProbeRpc,
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
+  WsSkillsReadRpc,
+  WsSkillsCreateRpc,
+  WsSkillsUpdateRpc,
+  WsSkillsDeleteRpc,
+  WsSkillsInstallRpc,
+  WsSkillsSetEnabledRpc,
   WsServerUpdateProviderRpc,
   WsServerUpdateServerRpc,
   WsServerUpdateServerWithProgressRpc,

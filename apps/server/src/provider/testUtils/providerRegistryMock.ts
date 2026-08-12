@@ -11,6 +11,12 @@ export const makeProviderRegistryMock = (
   getProviders: Effect.succeed(providers),
   refresh: () => Effect.succeed(providers),
   refreshInstance: () => Effect.succeed(providers),
+  readSkill: () => Effect.die("Skill management is not configured in this test."),
+  createSkill: () => Effect.die("Skill management is not configured in this test."),
+  updateSkill: () => Effect.die("Skill management is not configured in this test."),
+  deleteSkill: () => Effect.die("Skill management is not configured in this test."),
+  installSkills: () => Effect.die("Skill management is not configured in this test."),
+  setSkillEnabled: () => Effect.die("Skill management is not configured in this test."),
   getProviderMaintenanceCapabilitiesForInstance: (_instanceId, provider) =>
     Effect.succeed(makeManualOnlyProviderMaintenanceCapabilities({ provider, packageName: null })),
   setProviderMaintenanceActionState: () => Effect.succeed(providers),

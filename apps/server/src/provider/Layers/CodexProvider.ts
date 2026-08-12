@@ -319,6 +319,59 @@ export function buildCodexInitializeParams(): CodexSchema.V1InitializeParams {
   };
 }
 
+export const setCodexSkillEnabled = Effect.fn("setCodexSkillEnabled")(function* (input: {
+  readonly binaryPath: string;
+  readonly homePath?: string;
+  readonly launchArgs?: string;
+  readonly cwd: string;
+  readonly environment?: NodeJS.ProcessEnv;
+  readonly path: string;
+  readonly enabled: boolean;
+}) {
+  const resolvedHomePath = input.homePath ? expandHomePath(input.homePath) : undefined;
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const environment = {
+    ...input.environment,
+    ...(resolvedHomePath ? { CODEX_HOME: resolvedHomePath } : {}),
+  };
+  const spawnCommand = yield* resolveSpawnCommand(
+    input.binaryPath,
+    codexAppServerArgs(input.launchArgs),
+    { env: environment, extendEnv: true },
+  );
+  const child = yield* spawner
+    .spawn(
+      ChildProcess.make(spawnCommand.command, spawnCommand.args, {
+        cwd: input.cwd,
+        env: environment,
+        extendEnv: true,
+        forceKillAfter: CODEX_APP_SERVER_PROBE_FORCE_KILL_AFTER,
+        shell: spawnCommand.shell,
+      }),
+    )
+    .pipe(
+      Effect.mapError(
+        (cause) =>
+          new CodexErrors.CodexAppServerSpawnError({
+            command: `${input.binaryPath} app-server`,
+            cause,
+          }),
+      ),
+    );
+  const clientContext = yield* Layer.build(CodexClient.layerChildProcess(child));
+  const client = yield* Effect.service(CodexClient.CodexAppServerClient).pipe(
+    Effect.provide(clientContext),
+  );
+
+  yield* client.request("initialize", buildCodexInitializeParams());
+  yield* client.notify("initialized", undefined);
+  const result = yield* client.request("skills/config/write", {
+    path: input.path,
+    enabled: input.enabled,
+  });
+  return result.effectiveEnabled;
+});
+
 const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(function* (input: {
   readonly binaryPath: string;
   readonly homePath?: string;

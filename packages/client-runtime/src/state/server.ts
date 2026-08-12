@@ -731,6 +731,55 @@ export function createServerEnvironmentAtoms<R, E>(
         key: ({ environmentId }) => environmentId,
       },
     }),
+    readSkill: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:skills:read",
+      tag: WS_METHODS.skillsRead,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId, input }) => `${environmentId}:${input.instanceId}:${input.path}`,
+      },
+    }),
+    createSkill: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:skills:create",
+      tag: WS_METHODS.skillsCreate,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId, input }) =>
+          `${environmentId}:${input.instanceId}:${input.scope}:${input.name}`,
+      },
+    }),
+    updateSkill: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:skills:update",
+      tag: WS_METHODS.skillsUpdate,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId, input }) => `${environmentId}:${input.instanceId}:${input.path}`,
+      },
+    }),
+    deleteSkill: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:skills:delete",
+      tag: WS_METHODS.skillsDelete,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId, input }) => `${environmentId}:${input.instanceId}:${input.path}`,
+      },
+    }),
+    installSkills: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:skills:install",
+      tag: WS_METHODS.skillsInstall,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId, input }) => `${environmentId}:${input.instanceId}`,
+      },
+    }),
+    setSkillEnabled: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:skills:set-enabled",
+      tag: WS_METHODS.skillsSetEnabled,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId, input }) => `${environmentId}:${input.instanceId}:${input.path}`,
+      },
+    }),
     updateProvider: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:update-provider",
       tag: WS_METHODS.serverUpdateProvider,

@@ -96,6 +96,15 @@ export const ServerProviderSkill = Schema.Struct({
 });
 export type ServerProviderSkill = typeof ServerProviderSkill.Type;
 
+export const ProviderSkillManagementCapabilities = Schema.Struct({
+  canCreate: Schema.Boolean,
+  canInstall: Schema.Boolean,
+  canEdit: Schema.Boolean,
+  canDelete: Schema.Boolean,
+  canToggle: Schema.Boolean,
+});
+export type ProviderSkillManagementCapabilities = typeof ProviderSkillManagementCapabilities.Type;
+
 /**
  * Availability of a configured provider instance from the runtime's POV.
  *
@@ -192,6 +201,7 @@ export const ServerProvider = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
   skills: Schema.Array(ServerProviderSkill).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  skillManagement: Schema.optionalKey(ProviderSkillManagementCapabilities),
   versionAdvisory: Schema.optionalKey(ServerProviderVersionAdvisory),
   updateState: Schema.optionalKey(ServerProviderUpdateState),
 });
@@ -585,6 +595,92 @@ export const ServerProviderUpdatedPayload = Schema.Struct({
   providers: ServerProviders,
 });
 export type ServerProviderUpdatedPayload = typeof ServerProviderUpdatedPayload.Type;
+
+export const ProviderSkillCreateScope = Schema.Literals(["personal", "project"]);
+export type ProviderSkillCreateScope = typeof ProviderSkillCreateScope.Type;
+
+const ProviderSkillPath = TrimmedNonEmptyString.check(Schema.isMaxLength(4096));
+const ProviderSkillRevision = TrimmedNonEmptyString.check(Schema.isMaxLength(128));
+const ProviderSkillContents = Schema.String.check(Schema.isMaxLength(512 * 1024));
+
+export const ProviderSkillReadInput = Schema.Struct({
+  instanceId: ProviderInstanceId,
+  path: ProviderSkillPath,
+});
+export type ProviderSkillReadInput = typeof ProviderSkillReadInput.Type;
+
+export const ProviderSkillDocument = Schema.Struct({
+  skill: ServerProviderSkill,
+  content: ProviderSkillContents,
+  revision: ProviderSkillRevision,
+  editable: Schema.Boolean,
+  deletable: Schema.Boolean,
+});
+export type ProviderSkillDocument = typeof ProviderSkillDocument.Type;
+
+export const ProviderSkillCreateInput = Schema.Struct({
+  instanceId: ProviderInstanceId,
+  name: TrimmedNonEmptyString.check(Schema.isMaxLength(64)),
+  description: TrimmedNonEmptyString.check(Schema.isMaxLength(500)),
+  scope: ProviderSkillCreateScope,
+});
+export type ProviderSkillCreateInput = typeof ProviderSkillCreateInput.Type;
+
+export const ProviderSkillUpdateInput = Schema.Struct({
+  instanceId: ProviderInstanceId,
+  path: ProviderSkillPath,
+  content: ProviderSkillContents,
+  expectedRevision: ProviderSkillRevision,
+});
+export type ProviderSkillUpdateInput = typeof ProviderSkillUpdateInput.Type;
+
+export const ProviderSkillDeleteInput = Schema.Struct({
+  instanceId: ProviderInstanceId,
+  path: ProviderSkillPath,
+  expectedRevision: ProviderSkillRevision,
+});
+export type ProviderSkillDeleteInput = typeof ProviderSkillDeleteInput.Type;
+
+export const ProviderSkillInstallInput = Schema.Struct({
+  instanceId: ProviderInstanceId,
+  source: TrimmedNonEmptyString.check(Schema.isMaxLength(2048)),
+  skillName: Schema.optionalKey(TrimmedNonEmptyString.check(Schema.isMaxLength(128))),
+  scope: ProviderSkillCreateScope,
+});
+export type ProviderSkillInstallInput = typeof ProviderSkillInstallInput.Type;
+
+export const ProviderSkillSetEnabledInput = Schema.Struct({
+  instanceId: ProviderInstanceId,
+  path: ProviderSkillPath,
+  enabled: Schema.Boolean,
+});
+export type ProviderSkillSetEnabledInput = typeof ProviderSkillSetEnabledInput.Type;
+
+export const ProviderSkillWriteResult = Schema.Struct({
+  document: ProviderSkillDocument,
+  providers: ServerProviders,
+});
+export type ProviderSkillWriteResult = typeof ProviderSkillWriteResult.Type;
+
+export const ProviderSkillInstallResult = Schema.Struct({
+  paths: Schema.Array(ProviderSkillPath),
+  providers: ServerProviders,
+});
+export type ProviderSkillInstallResult = typeof ProviderSkillInstallResult.Type;
+
+export class ProviderSkillManagementError extends Schema.TaggedErrorClass<ProviderSkillManagementError>()(
+  "ProviderSkillManagementError",
+  {
+    instanceId: ProviderInstanceId,
+    operation: Schema.Literals(["read", "create", "update", "delete", "install", "setEnabled"]),
+    reason: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  override get message(): string {
+    return `Skill ${this.operation} failed for provider '${this.instanceId}': ${this.reason}`;
+  }
+}
 
 export const ServerProviderUpdateInput = Schema.Struct({
   provider: ProviderDriverKind,
