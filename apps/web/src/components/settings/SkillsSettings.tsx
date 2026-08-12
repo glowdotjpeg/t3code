@@ -48,6 +48,7 @@ import { shellEnvironment } from "../../state/shell";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { cn } from "../../lib/utils";
 import { ConnectionStatusDot, connectionPhaseDotClassName } from "../ConnectionStatusDot";
+import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import {
@@ -83,8 +84,36 @@ import { SettingsPageContainer, SettingsSection } from "./settingsLayout";
 
 type DialogMode = "create" | "install" | null;
 
+const SKILL_SCOPE_LABELS: Readonly<Record<ProviderSkillCreateScope, string>> = {
+  personal: "Personal · every workspace",
+  project: "Project · current workspace",
+};
+
+const SKILL_LOCATION_LABELS: Readonly<Record<SkillLocationFilter, string>> = {
+  all: "All locations",
+  personal: "Personal",
+  project: "Project",
+  bundled: "Bundled",
+};
+
 function providerLabel(provider: ServerProvider): string {
   return provider.displayName ?? PROVIDER_DISPLAY_NAMES[provider.driver] ?? provider.driver;
+}
+
+function ProviderSelectLabel({ provider }: { readonly provider: ServerProvider }) {
+  const label = providerLabel(provider);
+  return (
+    <span className="inline-flex min-w-0 items-center gap-2">
+      <ProviderInstanceIcon
+        driverKind={provider.driver}
+        displayName={label}
+        accentColor={provider.accentColor}
+        className="size-4"
+        iconClassName="size-3.5"
+      />
+      <span className="truncate">{label}</span>
+    </span>
+  );
 }
 
 function skillDescription(skill: ServerProviderSkill): string {
@@ -165,6 +194,8 @@ function SkillAuthorDialog({
       ),
     [mode, providers],
   );
+  const selectedProvider =
+    eligibleProviders.find((provider) => provider.instanceId === instanceId) ?? null;
 
   useEffect(() => {
     if (!mode) return;
@@ -225,12 +256,14 @@ function SkillAuthorDialog({
               onValueChange={(value) => setInstanceId(value as ProviderInstanceId)}
             >
               <SelectTrigger>
-                <SelectValue />
+                <SelectValue>
+                  {selectedProvider ? <ProviderSelectLabel provider={selectedProvider} /> : null}
+                </SelectValue>
               </SelectTrigger>
               <SelectPopup>
                 {eligibleProviders.map((provider) => (
                   <SelectItem key={provider.instanceId} value={provider.instanceId}>
-                    {providerLabel(provider)}
+                    <ProviderSelectLabel provider={provider} />
                   </SelectItem>
                 ))}
               </SelectPopup>
@@ -243,11 +276,11 @@ function SkillAuthorDialog({
               onValueChange={(value) => setScope(value as ProviderSkillCreateScope)}
             >
               <SelectTrigger>
-                <SelectValue />
+                <SelectValue>{SKILL_SCOPE_LABELS[scope]}</SelectValue>
               </SelectTrigger>
               <SelectPopup>
-                <SelectItem value="personal">Personal · every workspace</SelectItem>
-                <SelectItem value="project">Project · current workspace</SelectItem>
+                <SelectItem value="personal">{SKILL_SCOPE_LABELS.personal}</SelectItem>
+                <SelectItem value="project">{SKILL_SCOPE_LABELS.project}</SelectItem>
               </SelectPopup>
             </Select>
           </label>
@@ -988,12 +1021,14 @@ function SkillsWorkspace({
             }}
           >
             <SelectTrigger size="sm" className="sm:w-44">
-              <SelectValue placeholder="Provider" />
+              <SelectValue placeholder="Provider">
+                {activeProvider ? <ProviderSelectLabel provider={activeProvider} /> : null}
+              </SelectValue>
             </SelectTrigger>
             <SelectPopup>
               {skillProviders.map((provider) => (
                 <SelectItem key={provider.instanceId} value={provider.instanceId}>
-                  {providerLabel(provider)}
+                  <ProviderSelectLabel provider={provider} />
                 </SelectItem>
               ))}
             </SelectPopup>
@@ -1015,13 +1050,13 @@ function SkillsWorkspace({
             onValueChange={(value) => setLocation(value as SkillLocationFilter)}
           >
             <SelectTrigger size="sm" className="mt-2 sm:mt-0 sm:w-36">
-              <SelectValue />
+              <SelectValue>{SKILL_LOCATION_LABELS[location]}</SelectValue>
             </SelectTrigger>
             <SelectPopup>
-              <SelectItem value="all">All locations</SelectItem>
-              <SelectItem value="personal">Personal</SelectItem>
-              <SelectItem value="project">Project</SelectItem>
-              <SelectItem value="bundled">Bundled</SelectItem>
+              <SelectItem value="all">{SKILL_LOCATION_LABELS.all}</SelectItem>
+              <SelectItem value="personal">{SKILL_LOCATION_LABELS.personal}</SelectItem>
+              <SelectItem value="project">{SKILL_LOCATION_LABELS.project}</SelectItem>
+              <SelectItem value="bundled">{SKILL_LOCATION_LABELS.bundled}</SelectItem>
             </SelectPopup>
           </Select>
         </div>
