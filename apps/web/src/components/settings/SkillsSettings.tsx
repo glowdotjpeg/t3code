@@ -360,7 +360,7 @@ function SkillAuthorDialog({
   );
 }
 
-function SkillListRow({
+export function SkillListRow({
   skill,
   selected,
   onSelect,
@@ -394,7 +394,7 @@ function SkillListRow({
         <span className="block truncate text-sm font-medium">
           {formatProviderSkillDisplayName(skill)}
         </span>
-        <span className="mt-0.5 block line-clamp-2 text-xs leading-4 text-muted-foreground">
+        <span className="mt-0.5 line-clamp-2 max-h-8 overflow-hidden break-words text-xs leading-4 text-muted-foreground">
           {skillDescription(skill)}
         </span>
       </span>
