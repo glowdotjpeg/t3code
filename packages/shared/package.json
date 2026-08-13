@@ -215,6 +215,10 @@
       "types": "./src/usageMerge.ts",
       "import": "./src/usageMerge.ts"
     },
+    "./weeklyUsage": {
+      "types": "./src/weeklyUsage.ts",
+      "import": "./src/weeklyUsage.ts"
+    },
     "./usageFormat": {
       "types": "./src/usageFormat.ts",
       "import": "./src/usageFormat.ts"

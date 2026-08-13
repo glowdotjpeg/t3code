@@ -1686,6 +1686,20 @@ export const makeCodexSessionRuntime = (
       yield* client.request("initialize", buildCodexInitializeParams());
       yield* client.notify("initialized", undefined);
 
+      yield* client.request("account/rateLimits/read", undefined).pipe(
+        Effect.flatMap((response) => {
+          const rateLimits = response.rateLimitsByLimitId?.codex ?? response.rateLimits;
+          return emitEvent({
+            kind: "notification",
+            threadId: options.threadId,
+            method: "account/rateLimits/updated",
+            payload: { rateLimits },
+          });
+        }),
+        Effect.catch((cause) => Effect.logDebug("codex.weekly-usage.read-unavailable", { cause })),
+        Effect.forkIn(runtimeScope),
+      );
+
       const requestedModel = normalizeCodexModelSlug(options.model);
 
       const opened = yield* openCodexThread({

@@ -35,6 +35,7 @@ import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
+import * as Path from "effect/Path";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import * as CodexErrors from "effect-codex-app-server/errors";
 import * as EffectCodexSchema from "effect-codex-app-server/schema";
@@ -64,6 +65,7 @@ import {
 } from "./CodexSessionRuntime.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 import { resolveCodexLaunchArgs } from "./codexLaunchArgs.ts";
+import { normalizeWeeklyUsageEvent, persistWeeklyUsageSnapshots } from "../../usage/weeklyUsage.ts";
 const isCodexAppServerProcessExitedError = Schema.is(CodexErrors.CodexAppServerProcessExitedError);
 const isCodexAppServerTransportError = Schema.is(CodexErrors.CodexAppServerTransportError);
 const isCodexSessionRuntimeThreadIdMissingError = Schema.is(
@@ -1627,6 +1629,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
 ) {
   const boundInstanceId = options?.instanceId ?? ProviderInstanceId.make("codex");
   const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
   const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const crypto = yield* Crypto.Crypto;
   const serverConfig = yield* Effect.service(ServerConfig);
@@ -1641,6 +1644,19 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     options?.nativeEventLogger === undefined ? nativeEventLogger : undefined;
   const runtimeEventQueue = yield* Queue.unbounded<ProviderRuntimeEvent>();
   const sessions = new Map<ThreadId, CodexAdapterSessionContext>();
+  const persistWeeklyUsage = (
+    event: Extract<ProviderRuntimeEvent, { type: "account.rate-limits.updated" }>,
+  ) =>
+    persistWeeklyUsageSnapshots(serverConfig.stateDir, normalizeWeeklyUsageEvent(event)).pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, path),
+      Effect.catchCause((cause) =>
+        Effect.logWarning("codex.weekly-usage.persist-failed", {
+          providerInstanceId: boundInstanceId,
+          cause,
+        }),
+      ),
+    );
 
   const startSession: CodexAdapterShape["startSession"] = (input) =>
     Effect.scoped(
@@ -1727,6 +1743,11 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
                 itemId: event.itemId,
               });
               return;
+            }
+            for (const runtimeEvent of runtimeEvents) {
+              if (runtimeEvent.type === "account.rate-limits.updated") {
+                yield* persistWeeklyUsage(runtimeEvent);
+              }
             }
             yield* Queue.offerAll(runtimeEventQueue, runtimeEvents);
           }),

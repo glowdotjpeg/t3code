@@ -19,6 +19,7 @@ import {
   type UsageSource,
   type UsageSummary,
   type UsageSummaryInput,
+  type WeeklyUsageStatus,
   UsageReadError,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
@@ -52,6 +53,7 @@ import {
   type ScanCache,
 } from "./usageScanCache.ts";
 import type { UsageRecord } from "./usageTranscripts.ts";
+import { readWeeklyUsageStatus } from "./weeklyUsage.ts";
 
 const LITELLM_RATES_URL =
   "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
@@ -90,6 +92,7 @@ export class UsageService extends Context.Service<
   UsageService,
   {
     readonly readSummary: (input: UsageSummaryInput) => Effect.Effect<UsageSummary, UsageReadError>;
+    readonly readWeeklyUsage: Effect.Effect<WeeklyUsageStatus>;
   }
 >()("t3/usage/UsageService") {}
 
@@ -114,6 +117,10 @@ export const layerTest = Layer.succeed(
         },
         scanDurationMs: 0,
       }),
+    readWeeklyUsage: Effect.succeed({
+      readAt: "1970-01-01T00:00:00.000Z",
+      snapshots: [],
+    }),
   }),
 );
 
@@ -442,7 +449,13 @@ export const make = Effect.gen(function* () {
     } satisfies UsageSummary;
   });
 
-  return { readSummary } as const;
+  return {
+    readSummary,
+    readWeeklyUsage: readWeeklyUsageStatus(config.stateDir).pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, path),
+    ),
+  } as const;
 });
 
 export const layer = Layer.effect(UsageService, make);

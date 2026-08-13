@@ -14,7 +14,8 @@
  */
 import * as Schema from "effect/Schema";
 
-import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { IsoDateTime, NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
 
 /**
  * Bumped whenever the shape of {@link UsageSummary} changes incompatibly. The
@@ -192,6 +193,38 @@ export const UsageSummary = Schema.Struct({
   scanDurationMs: NonNegativeInt,
 });
 export type UsageSummary = typeof UsageSummary.Type;
+
+/**
+ * A provider-reported rolling seven-day allowance.
+ *
+ * This is deliberately separate from {@link UsageSummary}: transcript scans
+ * measure tokens and API-equivalent cost, while this snapshot reflects the
+ * subscription quota reported by the provider itself.
+ */
+export const WeeklyUsageWindowKind = Schema.Literals([
+  "weekly",
+  "weekly-opus",
+  "weekly-sonnet",
+  "weekly-oauth-apps",
+]);
+export type WeeklyUsageWindowKind = typeof WeeklyUsageWindowKind.Type;
+
+export const WeeklyUsageSnapshot = Schema.Struct({
+  provider: ProviderDriverKind,
+  providerInstanceId: ProviderInstanceId,
+  windowKind: WeeklyUsageWindowKind,
+  label: TrimmedNonEmptyString,
+  usedPercent: Schema.Number,
+  resetAt: Schema.NullOr(IsoDateTime),
+  observedAt: IsoDateTime,
+});
+export type WeeklyUsageSnapshot = typeof WeeklyUsageSnapshot.Type;
+
+export const WeeklyUsageStatus = Schema.Struct({
+  readAt: IsoDateTime,
+  snapshots: Schema.Array(WeeklyUsageSnapshot),
+});
+export type WeeklyUsageStatus = typeof WeeklyUsageStatus.Type;
 
 export class UsageReadError extends Schema.TaggedErrorClass<UsageReadError>()("UsageReadError", {
   reason: Schema.Literals(["scanFailed", "invalidWindow"]),

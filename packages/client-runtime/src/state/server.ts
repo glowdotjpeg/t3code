@@ -714,6 +714,11 @@ export function createServerEnvironmentAtoms<R, E>(
       tag: WS_METHODS.serverGetUsageSummary,
       staleTimeMs: 60_000,
     }),
+    weeklyUsage: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:weekly-usage",
+      tag: WS_METHODS.serverGetWeeklyUsage,
+      staleTimeMs: 15_000,
+    }),
     configProjection,
     welcome: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:server:welcome",

@@ -15,6 +15,7 @@ import {
   type PermissionUpdate,
   type SDKMessage,
   type SDKControlGetContextUsageResponse,
+  type SDKControlGetUsageResponse,
   type SDKResultMessage,
   type SettingSource,
   type SDKUserMessage,
@@ -49,6 +50,7 @@ import {
   ThreadId,
   TurnId,
   type UserInputQuestion,
+  type WeeklyUsageSnapshot,
 } from "@t3tools/contracts";
 import {
   applyClaudePromptEffortPrefix,
@@ -77,6 +79,11 @@ import { ServerConfig } from "../../config.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import { resolveClaudeSdkExecutablePath } from "../Drivers/ClaudeExecutable.ts";
 import { makeClaudeEnvironment } from "../Drivers/ClaudeHome.ts";
+import {
+  normalizeClaudeWeeklyUsageResponse,
+  normalizeWeeklyUsageEvent,
+  persistWeeklyUsageSnapshots,
+} from "../../usage/weeklyUsage.ts";
 import {
   getClaudeModelCapabilities,
   isClaudeUltracodeEffort,
@@ -256,6 +263,7 @@ interface ClaudeQueryRuntime extends AsyncIterable<SDKMessage> {
   readonly setPermissionMode: (mode: PermissionMode) => Promise<void>;
   readonly setMaxThinkingTokens: (maxThinkingTokens: number | null) => Promise<void>;
   readonly getContextUsage?: () => Promise<SDKControlGetContextUsageResponse>;
+  readonly usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?: () => Promise<SDKControlGetUsageResponse>;
   readonly close: () => void;
 }
 
@@ -1657,6 +1665,17 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
 
   const sessions = new Map<ThreadId, ClaudeSessionContext>();
   const runtimeEventQueue = yield* Queue.unbounded<ProviderRuntimeEvent>();
+  const persistWeeklyUsage = (snapshots: readonly WeeklyUsageSnapshot[]) =>
+    persistWeeklyUsageSnapshots(serverConfig.stateDir, snapshots).pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, path),
+      Effect.catchCause((cause) =>
+        Effect.logWarning("claude.weekly-usage.persist-failed", {
+          providerInstanceId: boundInstanceId,
+          cause,
+        }),
+      ),
+    );
 
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
   const randomUUIDv4 = crypto.randomUUIDv4.pipe(
@@ -1674,7 +1693,10 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
   const makeEventStamp = () => Effect.all({ eventId: nextEventId, createdAt: nowIso });
 
   const offerRuntimeEvent = (event: ProviderRuntimeEvent): Effect.Effect<void> =>
-    Queue.offer(runtimeEventQueue, event).pipe(Effect.asVoid);
+    (event.type === "account.rate-limits.updated"
+      ? persistWeeklyUsage(normalizeWeeklyUsageEvent(event))
+      : Effect.void
+    ).pipe(Effect.andThen(Queue.offer(runtimeEventQueue, event)), Effect.asVoid);
 
   const logNativeSdkMessage = Effect.fnUntraced(function* (
     context: ClaudeSessionContext,
@@ -4293,6 +4315,43 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           context.streamFiber = undefined;
         }
       });
+
+      const readUsage = queryRuntime.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET;
+      if (readUsage) {
+        runFork(
+          Effect.tryPromise({
+            try: () => readUsage.call(queryRuntime),
+            catch: (cause) =>
+              new ProviderAdapterRequestError({
+                provider: PROVIDER,
+                method: "usage",
+                detail: "Claude usage could not be read.",
+                cause,
+              }),
+          }).pipe(
+            Effect.timeoutOption("10 seconds"),
+            Effect.flatMap(
+              Option.match({
+                onNone: () => Effect.void,
+                onSome: (response) =>
+                  Effect.gen(function* () {
+                    const observedAt = yield* nowIso;
+                    yield* persistWeeklyUsage(
+                      normalizeClaudeWeeklyUsageResponse(response, {
+                        provider: PROVIDER,
+                        providerInstanceId: boundInstanceId,
+                        observedAt,
+                      }),
+                    );
+                  }),
+              }),
+            ),
+            Effect.catchCause((cause) =>
+              Effect.logDebug("claude.weekly-usage.read-unavailable", { cause }),
+            ),
+          ),
+        );
+      }
 
       return {
         ...session,

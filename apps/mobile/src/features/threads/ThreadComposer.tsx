@@ -72,6 +72,7 @@ import { ComposerCommandPopover, type ComposerCommandItem } from "./ComposerComm
 import { buildThreadSettingsMenu } from "./thread-settings-menu";
 import { ThreadSettingsSheet, threadSettingsSummaryLabel } from "./ThreadSettingsSheet";
 import { useThreadSettingsSheetPresentation } from "./use-thread-settings-sheet-presentation";
+import { WeeklyUsageToolbarStatus } from "./WeeklyUsageToolbarStatus";
 
 /**
  * Height of the collapsed composer (pill + vertical padding, excluding safe-area inset).
@@ -882,6 +883,10 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                     onPress={settingsSheetPresentation.open}
                   />
                 )}
+                <WeeklyUsageToolbarStatus
+                  environmentId={props.environmentId}
+                  modelSelection={currentModelSelection}
+                />
                 {showStopAction ? (
                   <ComposerToolbarButton
                     accessibilityLabel="Stop"

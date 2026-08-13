@@ -53,6 +53,7 @@ import { branchBadgeLabel, useNewTaskFlow } from "./new-task-flow-provider";
 import { useCreateProjectThread } from "./use-project-actions";
 import { resolveDraftProjectSelection } from "./new-task-project-selection";
 import { useIncomingShare } from "../sharing/IncomingShareProvider";
+import { WeeklyUsageToolbarStatus } from "./WeeklyUsageToolbarStatus";
 
 function formatWorkspaceLabel(input: {
   readonly workspaceMode: string;
@@ -931,6 +932,10 @@ export function NewTaskDraftScreen(props: {
         label={settingsSummaryLabel}
         maxWidth={320}
         onPress={settingsSheetPresentation.open}
+      />
+      <WeeklyUsageToolbarStatus
+        environmentId={flow.selectedEnvironmentId}
+        modelSelection={flow.selectedModel}
       />
       <ControlPillMenu
         actions={environmentMenuActions}

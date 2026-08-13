@@ -23,6 +23,7 @@ import { useCallback, useMemo } from "react";
 
 import { appAtomRegistry } from "./atom-registry";
 import { environmentPresentations } from "./presentation";
+import { useEnvironmentQuery } from "./query";
 import { serverEnvironment } from "./server";
 
 export interface EnvironmentUsageStatus {
@@ -136,4 +137,16 @@ export function useUsage(input: UsageSummaryInput): UsageView {
     isPartial: answeredCount > 0 && stillReporting > 0,
     refresh,
   };
+}
+
+/** Reads the provider-reported rolling weekly allowance for one environment. */
+export function useWeeklyUsage(environmentId: EnvironmentId | null) {
+  return useEnvironmentQuery(
+    environmentId === null
+      ? null
+      : serverEnvironment.weeklyUsage({
+          environmentId,
+          input: {},
+        }),
+  );
 }

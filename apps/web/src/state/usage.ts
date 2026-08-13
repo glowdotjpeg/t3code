@@ -19,6 +19,7 @@ import { useCallback, useMemo } from "react";
 
 import { mergeUsage, type EnvironmentUsage, type MergedUsage } from "@t3tools/shared/usageMerge";
 import { appAtomRegistry } from "../rpc/atomRegistry";
+import { useEnvironmentQuery } from "./query";
 import { environmentPresentations } from "./presentation";
 import { serverEnvironment } from "./server";
 
@@ -133,4 +134,14 @@ export function useUsage(input: UsageSummaryInput): UsageView {
     isPartial: answeredCount > 0 && stillReporting > 0,
     refresh,
   };
+}
+
+/** Reads the provider-reported rolling weekly allowance for one environment. */
+export function useWeeklyUsage(environmentId: EnvironmentId) {
+  return useEnvironmentQuery(
+    serverEnvironment.weeklyUsage({
+      environmentId,
+      input: {},
+    }),
+  );
 }
